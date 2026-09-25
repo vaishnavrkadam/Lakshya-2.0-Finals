@@ -10,7 +10,7 @@ export default function Footer({ setView }: FooterProps) {
                     <div className="flex flex-col items-center md:items-start gap-1">
                         <div className="flex items-center gap-3">
                             <span className="font-headline-sm text-xl text-[#F8FAFC] tracking-wider uppercase font-serif">
-                                LAKSHYA <span className="text-[#DC2626]">LIVE</span>
+                                LAKSHYA <span className="text-[#DC2626]">2.0</span>
                             </span>
                             <span className="text-xs text-[#282B3A]">|</span>
                             <div className="flex items-center gap-2.5">
@@ -20,40 +20,34 @@ export default function Footer({ setView }: FooterProps) {
                             </div>
                         </div>
                         <span className="font-mono text-xs text-[#64748B]">
-                            ISSF 10M RIFLE & PISTOL LIVE BROADCAST & SCORING PLATFORM · RVCE × GARE
+                            ISSF 10M RIFLE & PISTOL FINALS LIVE SCORING PLATFORM · RVCE × GARE
                         </span>
                     </div>
 
                     <div className="flex flex-wrap items-center justify-center gap-6">
                         <button
                             onClick={() => setView('live')}
-                            className="font-mono text-xs uppercase tracking-wider text-[#64748B] hover:text-[#F8FAFC] transition-colors"
+                            className="font-mono text-xs uppercase tracking-wider text-[#64748B] hover:text-[#F8FAFC] transition-colors cursor-pointer"
                         >
                             Leaderboard
                         </button>
                         <button
                             onClick={() => setView('search')}
-                            className="font-mono text-xs uppercase tracking-wider text-[#64748B] hover:text-[#F8FAFC] transition-colors"
+                            className="font-mono text-xs uppercase tracking-wider text-[#64748B] hover:text-[#F8FAFC] transition-colors cursor-pointer"
                         >
                             Score Cards
-                        </button>
-                        <button
-                            onClick={() => setView('admin')}
-                            className="font-mono text-xs uppercase tracking-wider text-[#F59E0B] hover:underline"
-                        >
-                            Admin Access
                         </button>
                     </div>
                 </div>
 
                 <div className="mt-8 pt-6 border-t border-[#282B3A] flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
                     <span className="font-mono text-[10px] text-[#64748B]">
-                        © 2026 LAKSHYA LIVE. GANDIVA AERO-PNEUMATIC RANGE & NCC RVCE. ALL RIGHTS RESERVED.
+                        © 2026 LAKSHYA 2.0. GANDIVA AERO-PNEUMATIC RANGE & NCC RVCE. ALL RIGHTS RESERVED.
                     </span>
                     <div className="flex items-center gap-3">
-                        <span className="font-mono text-[10px] text-[#64748B]">ISSF 2024-2028 RULEBOOK ENGINE</span>
+                        <span className="font-mono text-[10px] text-[#64748B]">ISSF 2024-2028 FINALS ENGINE</span>
                         <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626]"></span>
-                        <span className="font-mono text-[10px] text-[#64748B]">10M ELECTRONIC TARGETRY PROTOCOL</span>
+                        <span className="font-mono text-[10px] text-[#64748B]">24-SHOT ELIMINATION PROTOCOL</span>
                     </div>
                 </div>
             </div>

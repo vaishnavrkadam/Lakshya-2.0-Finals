@@ -4,72 +4,81 @@ export type EventStage =
     | 'UPCOMING'
     | 'PREPARATION'
     | 'SIGHTING'
-    | 'QUALIFICATION_LIVE'
-    | 'QUALIFICATION_PAUSED'
-    | 'QUALIFICATION_COMPLETE'
-    | 'FINAL_PREPARATION'
     | 'FINAL_LIVE'
     | 'FINAL_COMPLETE'
-    | 'RESULTS_APPROVED'
-    | 'RESULTS_LOCKED';
+    | 'RESULTS_APPROVED';
 
 export type UserRole = 'ADMIN' | 'SCORER' | 'OFFICIAL' | 'JURY' | 'PUBLIC';
 
 export interface Participant {
     id: string;
-    bib: string;
+    bib?: string;
     name: string;
-    gender: 'M' | 'F';
-    category: 'Youth' | 'Junior' | 'Senior' | 'Master';
-    club: string;
-    college?: string;
-    noc: string;
-    relay: number;
-    firingPoint: number;
+    usn: string;
+    department: string;
     discipline: Discipline;
+    photoUrl?: string;
+    achievements?: string;
+    initialScore: number;
+    gender?: 'M' | 'F';
+    category?: 'Youth' | 'Junior' | 'Senior' | 'Master';
+    club?: string;
+    noc?: string;
+    relay?: number;
+    firingPoint?: number;
 }
 
 export interface ShotRecord {
-    shotIndex: number; // 1 to 60
+    shotIndex: number; // 1 to 24
     score: number; // 0.0 to 10.9
-    isSighting?: boolean;
     timestamp: number;
     scorerId?: string;
 }
 
 export interface AthleteResult {
     participantId: string;
-    bib: string;
     name: string;
-    noc: string;
-    club: string;
-    relay: number;
-    firingPoint: number;
+    usn: string;
+    department: string;
     discipline: Discipline;
-    qualificationShots: number[];
-    qualificationTotal: number;
-    qualificationRank: number;
-    qualificationStatus: 'SHOOTING' | 'COMPLETED' | 'DNS' | 'DSQ';
-    finalShots?: number[];
-    finalTotal?: number;
-    finalRank?: number;
-    finalStatus?: 'LIVE' | 'ELIMINATED' | 'GOLD' | 'SILVER' | 'BRONZE';
+    photoUrl?: string;
+    achievements?: string;
+    initialScore: number;
+    // Finals 24 shots
+    shots: number[];
+    finalTotal: number;
+    liveTotalScore: number; // actual arithmetic sum of all shots taken
+    finalRank: number;
+    finalStatus: 'LIVE' | 'ELIMINATED' | 'GOLD' | 'SILVER' | 'BRONZE';
+    laggingBy?: string;
     eliminatedAtShot?: number;
-    rankDelta?: number; // +2, -1, 0 for animations
+    rankDelta?: number;
     lastShot?: number;
+    bib?: string;
+    firingPoint?: number;
+    relay?: number;
+    club?: string;
+    noc?: string;
+    qualificationShots?: number[];
+    qualificationTotal?: number;
+    qualificationRank?: number;
+    qualificationStatus?: 'SHOOTING' | 'COMPLETED' | 'DNS' | 'DSQ';
 }
 
 export interface CurrentShooterState {
     participantId: string;
-    bib: string;
     name: string;
-    firingPoint: number;
-    relay: number;
+    usn: string;
+    department: string;
+    discipline: Discipline;
     shotIndex: number;
-    totalShots: number;
+    totalShots: number; // 24
     lastShot: number;
     currentScore: number;
-    discipline: Discipline;
+    photoUrl?: string;
+    bib?: string;
+    firingPoint?: number;
+    relay?: number;
 }
 
 export interface LiveState {
@@ -101,19 +110,4 @@ export interface AuditLog {
     oldValue?: number | string;
     newValue?: number | string;
     reason?: string;
-}
-
-export interface DisciplineConfig {
-    id: Discipline;
-    name: string;
-    qualificationShots: number;
-    qualificationMaxScore: number;
-    finalistCount: number;
-    finalSeriesStructure: {
-        stage1Series: number[]; // e.g. [5, 5]
-        singleShotStart: number; // e.g. 11
-        singleShotEnd: number; // e.g. 24
-        eliminationIntervalShots: number; // e.g. 2
-        eliminationSchedule: { shotIndex: number; eliminateRank: number }[];
-    };
 }

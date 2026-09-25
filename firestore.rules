@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if the requester is authenticated as an admin
+    function isAdmin() {
+      return request.auth != null;
+    }
+
+    // Publicly readable live competition state, only admin can modify
+    match /liveState/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Publicly readable finalists and competition scores, only admin can modify
+    match /finalists/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Publicly readable tournament settings
+    match /settings/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Audit logs can only be read and written by authenticated admin/scorers
+    match /auditLogs/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // Default deny all other collections
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

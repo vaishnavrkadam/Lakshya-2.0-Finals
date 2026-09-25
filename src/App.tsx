@@ -7,6 +7,7 @@ import PublicLivePage from './pages/PublicLivePage';
 import ScorerPanel from './pages/ScorerPanel';
 import AdminDashboard from './pages/AdminDashboard';
 import AthleteSearch from './pages/AthleteSearch';
+import AdminAuthScreen from './pages/AdminAuthScreen';
 
 const VALID_VIEWS = ['live', 'scorer', 'admin', 'search'];
 
@@ -44,15 +45,6 @@ function MainContent() {
     };
   }, []);
 
-  // Safeguard: Redirect unauthenticated users back to live view if trying to access restricted admin/scorer tabs
-  useEffect(() => {
-    if (currentView === 'admin' && !isAdmin) {
-      setCurrentView('live');
-    } else if (currentView === 'scorer' && !isScorer) {
-      setCurrentView('live');
-    }
-  }, [currentView, isAdmin, isScorer]);
-
   return (
     <div className="min-h-screen flex flex-col bg-[#0B0C10] text-[#F8FAFC]">
       <Header currentView={currentView} setView={setView} />
@@ -60,8 +52,30 @@ function MainContent() {
       <main className="flex-1 w-full">
         {currentView === 'live' && <PublicLivePage />}
         {currentView === 'search' && <AthleteSearch />}
-        {currentView === 'scorer' && isScorer && <ScorerPanel />}
-        {currentView === 'admin' && isAdmin && <AdminDashboard />}
+
+        {/* Admin route: If not authenticated, render AdminAuthScreen. Never render dashboard prematurely */}
+        {currentView === 'admin' && (
+          isAdmin ? (
+            <AdminDashboard />
+          ) : (
+            <AdminAuthScreen
+              onSuccess={() => { }}
+              onCancel={() => setView('live')}
+            />
+          )
+        )}
+
+        {/* Scorer route: Protected */}
+        {currentView === 'scorer' && (
+          isScorer ? (
+            <ScorerPanel />
+          ) : (
+            <AdminAuthScreen
+              onSuccess={() => { }}
+              onCancel={() => setView('live')}
+            />
+          )
+        )}
       </main>
 
       <Footer setView={setView} />

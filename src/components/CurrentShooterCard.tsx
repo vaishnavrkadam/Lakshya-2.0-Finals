@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLiveData } from '../context/LiveDataContext';
-import { Target, Radio, Award } from 'lucide-react';
+import { Radio } from 'lucide-react';
 
 export default function CurrentShooterCard() {
     const { currentShooter } = useLiveData();
@@ -17,37 +17,33 @@ export default function CurrentShooterCard() {
 
                     <div className="flex flex-col">
                         <div className="flex items-center gap-2">
-                            <span className="font-mono text-[10px] text-[#DC2626] uppercase font-bold tracking-widest flex items-center gap-1">
-                                🔴 NOW SHOOTING
-                            </span>
-                            <span className="text-xs text-[#282B3A]">|</span>
-                            <span className="font-mono text-xs text-[#F59E0B] font-bold">
-                                BIB {currentShooter.bib}
+                            <span className="font-mono text-[10px] sm:text-xs text-[#DC2626] uppercase font-bold tracking-wider flex items-center gap-1.5">
+                                🔴 NOW SHOOTING — ALL SHOOTERS ARE SHOOTING SIMULTANEOUSLY
                             </span>
                         </div>
 
-                        <h3 className="font-headline-sm text-xl sm:text-2xl text-[#F8FAFC] tracking-wider uppercase">
+                        <h3 className="font-headline-sm text-xl sm:text-2xl text-[#F8FAFC] tracking-wider uppercase mt-0.5">
                             {currentShooter.name}
                         </h3>
 
-                        <div className="flex items-center gap-3 text-xs font-mono text-[#64748B]">
-                            <span>FIRING POINT <strong className="text-[#F8FAFC]">{currentShooter.firingPoint}</strong></span>
+                        <div className="flex items-center gap-3 text-xs font-mono text-[#94A3B8]">
+                            <span>DEPT: <strong className="text-[#F8FAFC]">{currentShooter.department}</strong></span>
                             <span>•</span>
-                            <span>RELAY <strong className="text-[#F8FAFC]">{currentShooter.relay}</strong></span>
+                            <span>USN: <strong className="text-[#F59E0B]">{currentShooter.usn}</strong></span>
                         </div>
                     </div>
                 </div>
 
                 {/* Right Telemetry Grid */}
-                <div className="grid grid-cols-3 gap-3 sm:gap-6 w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-[#282B3A]">
+                <div className="grid grid-cols-3 gap-3 sm:gap-4 w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-[#282B3A]">
 
-                    {/* Shot Count */}
+                    {/* Progress (Shot X of 24) */}
                     <div className="bg-[#0B0C10] px-3.5 py-2 rounded-lg border border-[#282B3A] text-center flex flex-col justify-center">
                         <span className="font-mono text-[9px] sm:text-[10px] text-[#64748B] uppercase tracking-wider">
                             PROGRESS
                         </span>
                         <span className="font-mono text-base sm:text-lg font-bold text-[#F8FAFC]">
-                            SHOT {currentShooter.shotIndex} / {currentShooter.totalShots}
+                            SHOT {currentShooter.shotIndex} / 24
                         </span>
                     </div>
 
@@ -57,7 +53,7 @@ export default function CurrentShooterCard() {
                             LAST SHOT
                         </span>
                         <span className="font-mono text-base sm:text-lg font-bold text-[#F59E0B] animate-score-change">
-                            {currentShooter.lastShot.toFixed(1)}
+                            {currentShooter.lastShot > 0 ? currentShooter.lastShot.toFixed(1) : '—'}
                         </span>
                     </div>
 

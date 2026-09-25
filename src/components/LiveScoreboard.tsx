@@ -1,129 +1,148 @@
+import React from 'react';
 import { useLiveData } from '../context/LiveDataContext';
-import { Trophy, TrendingUp, TrendingDown } from 'lucide-react';
+import { Trophy, TrendingUp, TrendingDown, Award } from 'lucide-react';
 
 interface LiveScoreboardProps {
     onSelectAthlete?: (participantId: string) => void;
 }
 
 export default function LiveScoreboard({ onSelectAthlete }: LiveScoreboardProps) {
-    const { activeResults, liveState } = useLiveData();
-    const isFinal = liveState.stage === 'FINAL_LIVE' || liveState.stage === 'FINAL_COMPLETE';
+    const { activeResults, liveState, currentShooter } = useLiveData();
 
     return (
-        <div className="flex flex-col bg-[#12131A] rounded-xl border border-[#282B3A] overflow-hidden shadow-2xl h-full">
+        <div className="flex flex-col bg-[#12131A] rounded-xl border border-[#282B3A] overflow-hidden shadow-2xl h-full font-mono">
 
             {/* Header bar */}
             <div className="px-4 py-3 bg-[#0E0F15] border-b border-[#282B3A] flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <Trophy className="w-4 h-4 text-[#F59E0B]" />
                     <span className="font-headline-sm text-sm text-[#F8FAFC] tracking-wider uppercase">
-                        {isFinal ? 'LIVE FINAL STANDINGS' : 'LIVE QUALIFICATION LEADERBOARD'}
+                        LIVE FINALS LEADERBOARD
                     </span>
                 </div>
-                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-[#1A1C26] border border-[#282B3A] text-[#64748B]">
-                    {activeResults.length} ATHLETES
+                <span className="text-[10px] px-2 py-0.5 rounded bg-[#1A1C26] border border-[#282B3A] text-[#F59E0B] font-bold uppercase">
+                    {liveState.discipline === '10m_rifle' ? '10M RIFLE' : '10M PISTOL'}
                 </span>
             </div>
 
-            {/* Table Container */}
-            <div className="flex-1 overflow-y-auto max-h-[550px] lg:max-h-[640px]">
-                <table className="w-full text-left border-collapse">
+            {/* Table Container - Strict NO Horizontal Scrolling */}
+            <div className="w-full overflow-x-hidden">
+                <table className="w-full table-fixed text-left border-collapse">
                     <thead>
-                        <tr className="bg-[#0B0C10] border-b border-[#282B3A] font-mono text-[10px] text-[#64748B] uppercase tracking-wider sticky top-0 z-10">
-                            <th className="py-2.5 px-3 w-12 text-center">POS</th>
-                            <th className="py-2.5 px-2 w-12">BIB</th>
-                            <th className="py-2.5 px-3">ATHLETE</th>
-                            <th className="py-2.5 px-2 text-center">NOC</th>
-                            <th className="py-2.5 px-2 text-right">LAST</th>
-                            <th className="py-2.5 px-3 text-right">SCORE</th>
-                            {isFinal && <th className="py-2.5 px-3 text-center">STATUS</th>}
+                        <tr className="bg-[#0B0C10] border-b border-[#282B3A] text-[10px] text-[#64748B] uppercase tracking-wider sticky top-0 z-10">
+                            <th className="py-2.5 px-2 w-[12%] text-center">POS</th>
+                            <th className="py-2.5 px-2 w-[34%]">ATHLETE</th>
+                            <th className="py-2.5 px-1.5 w-[14%] text-center">DEPT</th>
+                            <th className="py-2.5 px-2 w-[18%] text-right">SCORE</th>
+                            <th className="py-2.5 px-1.5 w-[18%] text-right">LAGGING</th>
+                            <th className="py-2.5 px-1.5 w-[16%] text-center hidden sm:table-cell">STATUS</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#282B3A]/50 font-mono text-xs">
+                    <tbody className="divide-y divide-[#282B3A]/50 text-xs">
                         {activeResults.map((ath, idx) => {
-                            const pos = idx + 1;
+                            const pos = ath.finalRank || (idx + 1);
                             const isLead = pos === 1;
                             const isPodium = pos <= 3;
                             const isEliminated = ath.finalStatus === 'ELIMINATED';
+                            const isGold = ath.finalStatus === 'GOLD';
+                            const isSilver = ath.finalStatus === 'SILVER';
+                            const isBronze = ath.finalStatus === 'BRONZE';
+                            const isCurrentSelected = ath.participantId === currentShooter.participantId;
 
                             return (
                                 <tr
                                     key={ath.participantId}
                                     onClick={() => onSelectAthlete?.(ath.participantId)}
-                                    className={`group hover:bg-[#1A1C26]/80 transition-colors cursor-pointer ${isEliminated
-                                            ? 'opacity-40 bg-[#12131A] line-through'
-                                            : isLead
-                                                ? 'bg-[#DC2626]/10 font-bold'
-                                                : 'bg-transparent'
+                                    className={`group hover:bg-[#1A1C26]/80 transition-colors cursor-pointer ${isGold
+                                            ? 'bg-[#F59E0B]/10 font-bold'
+                                            : isSilver
+                                                ? 'bg-[#94A3B8]/10'
+                                                : isBronze
+                                                    ? 'bg-[#D97706]/10'
+                                                    : isEliminated
+                                                        ? 'opacity-40 bg-[#12131A] line-through'
+                                                        : isCurrentSelected
+                                                            ? 'bg-[#DC2626]/10 border-l-2 border-[#DC2626]'
+                                                            : 'bg-transparent'
                                         }`}
                                 >
-                                    {/* Position + Delta */}
-                                    <td className="py-3 px-3 text-center font-bold">
+                                    {/* Position Badge */}
+                                    <td className="py-2.5 px-2 text-center font-bold">
                                         <div className="flex items-center justify-center gap-1">
-                                            <span className={`w-6 h-6 rounded flex items-center justify-center text-xs ${isLead ? 'bg-[#F59E0B] text-[#0B0C10]' : isPodium ? 'bg-[#282B3A] text-[#F8FAFC]' : 'text-[#64748B]'
-                                                }`}>
+                                            <span
+                                                className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold shrink-0 ${isGold
+                                                        ? 'bg-[#F59E0B] text-[#0B0C10] shadow-[0_0_8px_rgba(245,158,11,0.5)]'
+                                                        : isSilver
+                                                            ? 'bg-[#CBD5E1] text-[#0B0C10]'
+                                                            : isBronze
+                                                                ? 'bg-[#CD7F32] text-[#0B0C10]'
+                                                                : isLead
+                                                                    ? 'bg-[#F59E0B] text-[#0B0C10]'
+                                                                    : isPodium
+                                                                        ? 'bg-[#282B3A] text-[#F8FAFC]'
+                                                                        : 'text-[#64748B]'
+                                                    }`}
+                                            >
                                                 {pos}
                                             </span>
                                             {ath.rankDelta && ath.rankDelta > 0 ? (
-                                                <span className="text-[10px] text-[#22C55E] flex items-center animate-bounce">
-                                                    <TrendingUp className="w-3 h-3" /> +{ath.rankDelta}
+                                                <span className="text-[9px] text-[#22C55E] hidden md:flex items-center">
+                                                    <TrendingUp className="w-2.5 h-2.5" />+{ath.rankDelta}
                                                 </span>
                                             ) : ath.rankDelta && ath.rankDelta < 0 ? (
-                                                <span className="text-[10px] text-[#EF4444] flex items-center">
-                                                    <TrendingDown className="w-3 h-3" /> {ath.rankDelta}
+                                                <span className="text-[9px] text-[#EF4444] hidden md:flex items-center">
+                                                    <TrendingDown className="w-2.5 h-2.5" />{ath.rankDelta}
                                                 </span>
                                             ) : null}
                                         </div>
                                     </td>
 
-                                    {/* Bib */}
-                                    <td className="py-3 px-2 font-mono text-[#F59E0B]">
-                                        {ath.bib}
-                                    </td>
-
-                                    {/* Name & Club */}
-                                    <td className="py-3 px-3">
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-[#F8FAFC] group-hover:text-[#DC2626] transition-colors truncate max-w-[140px] sm:max-w-none">
-                                                {ath.name}
-                                            </span>
-                                            <span className="text-[10px] text-[#64748B] truncate max-w-[140px] sm:max-w-none">
-                                                {ath.club}
-                                            </span>
+                                    {/* Athlete Name (ONLY athlete name, no club or subtitle) */}
+                                    <td className="py-2.5 px-2 overflow-hidden">
+                                        <div className="font-bold text-[#F8FAFC] group-hover:text-[#DC2626] transition-colors truncate text-xs sm:text-sm">
+                                            {ath.name}
                                         </div>
                                     </td>
 
-                                    {/* NOC */}
-                                    <td className="py-3 px-2 text-center text-[#64748B] text-[11px] font-bold">
-                                        {ath.noc}
+                                    {/* Department (Replaced NOC) */}
+                                    <td className="py-2.5 px-1.5 text-center text-[#94A3B8] font-bold text-[11px] sm:text-xs">
+                                        {ath.department}
                                     </td>
 
-                                    {/* Last Shot */}
-                                    <td className="py-3 px-2 text-right font-mono text-[#64748B]">
-                                        {ath.lastShot !== undefined ? ath.lastShot.toFixed(1) : '-'}
+                                    {/* Current Score (Fully visible, never clipped) */}
+                                    <td className="py-2.5 px-2 text-right font-mono font-bold text-xs sm:text-sm text-[#F8FAFC] whitespace-nowrap">
+                                        {ath.finalTotal.toFixed(1)}
                                     </td>
 
-                                    {/* Total Score */}
-                                    <td className="py-3 px-3 text-right font-mono font-bold text-sm text-[#F8FAFC] animate-score-change">
-                                        {isFinal
-                                            ? (ath.finalTotal || 0).toFixed(1)
-                                            : ath.qualificationTotal.toFixed(1)}
+                                    {/* Lagging By */}
+                                    <td className="py-2.5 px-1.5 text-right font-mono font-bold text-xs text-[#F59E0B] whitespace-nowrap">
+                                        {ath.laggingBy ?? '—'}
                                     </td>
 
-                                    {/* Status in Final */}
-                                    {isFinal && (
-                                        <td className="py-3 px-3 text-center">
-                                            {isEliminated ? (
-                                                <span className="px-2 py-0.5 rounded bg-[#EF4444]/20 border border-[#EF4444]/60 text-[9px] text-[#EF4444] font-bold">
-                                                    ELIMINATED
-                                                </span>
-                                            ) : (
-                                                <span className="px-2 py-0.5 rounded bg-[#22C55E]/20 border border-[#22C55E]/60 text-[9px] text-[#22C55E] font-bold animate-pulse">
-                                                    LIVE
-                                                </span>
-                                            )}
-                                        </td>
-                                    )}
+                                    {/* Status Badge */}
+                                    <td className="py-2.5 px-1.5 text-center hidden sm:table-cell">
+                                        {isGold ? (
+                                            <span className="px-1.5 py-0.5 rounded bg-[#F59E0B]/20 border border-[#F59E0B] text-[9px] text-[#F59E0B] font-bold">
+                                                GOLD
+                                            </span>
+                                        ) : isSilver ? (
+                                            <span className="px-1.5 py-0.5 rounded bg-[#94A3B8]/20 border border-[#94A3B8] text-[9px] text-[#CBD5E1] font-bold">
+                                                SILVER
+                                            </span>
+                                        ) : isBronze ? (
+                                            <span className="px-1.5 py-0.5 rounded bg-[#CD7F32]/20 border border-[#CD7F32] text-[9px] text-[#CD7F32] font-bold">
+                                                BRONZE
+                                            </span>
+                                        ) : isEliminated ? (
+                                            <span className="px-1.5 py-0.5 rounded bg-[#EF4444]/20 border border-[#EF4444]/60 text-[9px] text-[#EF4444] font-bold">
+                                                OUT (S{ath.eliminatedAtShot || 12})
+                                            </span>
+                                        ) : (
+                                            <span className="px-1.5 py-0.5 rounded bg-[#22C55E]/20 border border-[#22C55E]/60 text-[9px] text-[#22C55E] font-bold">
+                                                LIVE
+                                            </span>
+                                        )}
+                                    </td>
                                 </tr>
                             );
                         })}
@@ -131,9 +150,10 @@ export default function LiveScoreboard({ onSelectAthlete }: LiveScoreboardProps)
                 </table>
             </div>
 
-            {/* Footer hint */}
-            <div className="px-4 py-2 bg-[#0E0F15] border-t border-[#282B3A] text-center font-mono text-[10px] text-[#64748B]">
-                DECIMAL SCORING (MAX 654.0) · REAL-TIME SYNCED
+            {/* Footer Summary */}
+            <div className="px-4 py-2 bg-[#0E0F15] border-t border-[#282B3A] flex items-center justify-between text-[10px] text-[#64748B]">
+                <span>24-SHOT FINALS PROTOCOL</span>
+                <span className="text-[#F59E0B] font-bold">STAGED SCORING ACTIVE</span>
             </div>
         </div>
     );

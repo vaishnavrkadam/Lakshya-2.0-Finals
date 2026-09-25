@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Volume2, Radio, Maximize2 } from 'lucide-react';
+import { Radio } from 'lucide-react';
 
 interface YouTubeEmbedProps {
     videoId: string;
@@ -23,7 +23,7 @@ export default function YouTubeEmbed({ videoId, streamTitle, cameraName }: YouTu
                         <Radio className="w-3 h-3 text-[#DC2626] animate-pulse" /> 🔴 YOUTUBE LIVE
                     </span>
                     <span className="font-mono text-xs text-[#F8FAFC] font-bold truncate max-w-[280px] sm:max-w-md">
-                        {streamTitle || 'LAKSHYA ISSF 10M OFFICIAL BROADCAST'}
+                        {streamTitle || 'LAKSHYA 2.0 OFFICIAL FINALS LIVE STREAM'}
                     </span>
                 </div>
                 <span className="hidden sm:inline-flex font-mono text-[10px] text-[#64748B] uppercase tracking-wider">
@@ -54,16 +54,12 @@ export default function YouTubeEmbed({ videoId, streamTitle, cameraName }: YouTu
                 />
             </div>
 
-            {/* Bottom Stream Telemetry Bar */}
+            {/* Bottom Stream Telemetry Bar (Cleaned, audio text removed) */}
             <div className="px-4 py-2 bg-[#0E0F15] border-t border-[#282B3A] flex items-center justify-between font-mono text-[11px] text-[#64748B]">
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
                     <span className="flex items-center gap-1 text-[#22C55E]">
                         <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse" />
                         1080p60 HD STREAM
-                    </span>
-                    <span className="hidden sm:inline text-[#282B3A]">|</span>
-                    <span className="hidden sm:inline text-[#CBD5E1]">
-                        AUDIO: STEREO ISSF RANGE MICS
                     </span>
                 </div>
                 <span className="text-[#F59E0B]">

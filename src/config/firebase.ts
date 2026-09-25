@@ -1,8 +1,8 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
     getAuth,
-    GoogleAuthProvider,
-    signInWithPopup,
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
     signOut,
     onAuthStateChanged,
     type User
@@ -23,40 +23,32 @@ import {
     type DocumentData
 } from 'firebase/firestore';
 import {
-    getDatabase,
-    ref,
-    onValue,
-    set,
-    update,
-    type Database
-} from 'firebase/database';
+    getStorage,
+    ref as storageRef,
+    uploadBytes,
+    getDownloadURL
+} from 'firebase/storage';
 
-// Empty/placeholder Firebase configuration (Add your real credentials in .env or update here when ready)
+// Official Lakshya 2.0 Finals Firebase Configuration
 const firebaseConfig = {
-    apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY || "",
-    authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || "",
-    projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || "",
-    storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET || "",
-    messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-    appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID || "",
-    databaseURL: (import.meta as any).env?.VITE_FIREBASE_DATABASE_URL || ""
+    apiKey: "AIzaSyCPKMv1BliqBdU9KymUhqcV8qxJ2OsgJzc",
+    authDomain: "lakshya2finals.firebaseapp.com",
+    projectId: "lakshya2finals",
+    storageBucket: "lakshya2finals.firebasestorage.app",
+    messagingSenderId: "428657842383",
+    appId: "1:428657842383:web:55223e3761c426792b7fba",
+    measurementId: "G-PWYZJQYBHV"
 };
 
-// Dummy app initialization fallback if credentials are empty
-const dummyConfig = { apiKey: "demo-api-key", projectId: "demo-project" };
-
-export const app = getApps().length > 0
-    ? getApp()
-    : initializeApp(firebaseConfig.apiKey ? firebaseConfig : dummyConfig);
+export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const rtdb: Database = getDatabase(app);
-export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+export const storage = getStorage(app);
 
 export {
-    signInWithPopup,
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
     signOut,
     onAuthStateChanged,
     type User,
@@ -71,9 +63,8 @@ export {
     where,
     orderBy,
     onSnapshot,
-    ref,
-    onValue,
-    set,
-    update,
+    storageRef,
+    uploadBytes,
+    getDownloadURL,
     type DocumentData
 };

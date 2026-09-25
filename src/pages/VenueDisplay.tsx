@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLiveData } from '../context/LiveDataContext';
-import { Maximize2, Minimize2, Radio } from 'lucide-react';
+import { Maximize2, Minimize2, Radio, Trophy } from 'lucide-react';
 
 export default function VenueDisplay() {
     const { activeResults, liveState } = useLiveData();
@@ -14,7 +14,6 @@ export default function VenueDisplay() {
         }
     };
 
-    const isFinal = liveState.stage === 'FINAL_LIVE' || liveState.stage === 'FINAL_COMPLETE';
     const topFinalists = activeResults.slice(0, 8);
 
     return (
@@ -28,19 +27,19 @@ export default function VenueDisplay() {
                     </div>
                     <div>
                         <div className="text-xs text-[#DC2626] font-bold tracking-widest uppercase flex items-center gap-2">
-                            <span>🔴 LAKSHYA LIVE VENUE BROADCAST</span>
+                            <span>🔴 LAKSHYA 2.0 LIVE VENUE BROADCAST</span>
                             <span>•</span>
-                            <span className="text-[#F59E0B]">RELAY 0{liveState.relay}</span>
+                            <span className="text-[#F59E0B]">24-SHOT FINALS</span>
                         </div>
                         <h1 className="font-headline-sm text-3xl sm:text-5xl lg:text-6xl text-[#F8FAFC] uppercase tracking-wider">
-                            {liveState.discipline === '10m_rifle' ? '10M AIR RIFLE' : '10M AIR PISTOL'} — {isFinal ? 'FINAL' : 'QUALIFICATION LEADERBOARD'}
+                            {liveState.discipline === '10m_rifle' ? '10M AIR RIFLE' : '10M AIR PISTOL'}
                         </h1>
                     </div>
                 </div>
 
                 <button
                     onClick={toggleFullscreen}
-                    className="p-3 bg-[#12131A] border border-[#282B3A] hover:border-[#DC2626] rounded-xl text-[#F8FAFC] hover:scale-105 transition-all shadow-lg"
+                    className="p-3 bg-[#12131A] border border-[#282B3A] hover:border-[#DC2626] rounded-xl text-[#F8FAFC] hover:scale-105 transition-all shadow-lg cursor-pointer"
                     title="Toggle Fullscreen Projector Mode"
                 >
                     {isFullscreen ? <Minimize2 className="w-6 h-6" /> : <Maximize2 className="w-6 h-6" />}
@@ -52,61 +51,72 @@ export default function VenueDisplay() {
                 <div className="bg-[#12131A] rounded-2xl border border-[#282B3A] overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.9)]">
                     <div className="grid grid-cols-12 bg-[#0B0C10] py-4 px-6 border-b border-[#282B3A] text-xs text-[#64748B] font-bold uppercase tracking-widest">
                         <div className="col-span-1 text-center">POS</div>
-                        <div className="col-span-1">BIB</div>
-                        <div className="col-span-6">ATHLETE NAME & NOC</div>
-                        <div className="col-span-2 text-right">LAST SHOT</div>
+                        <div className="col-span-5">ATHLETE NAME</div>
+                        <div className="col-span-2 text-center">DEPARTMENT</div>
+                        <div className="col-span-2 text-right">LAGGING BY</div>
                         <div className="col-span-2 text-right">TOTAL SCORE</div>
                     </div>
 
                     <div className="divide-y divide-[#282B3A]/80">
                         {topFinalists.map((ath, idx) => {
-                            const pos = idx + 1;
+                            const pos = ath.finalRank || (idx + 1);
                             const isLead = pos === 1;
                             const isEliminated = ath.finalStatus === 'ELIMINATED';
+                            const isGold = ath.finalStatus === 'GOLD';
 
                             return (
                                 <div
                                     key={ath.participantId}
-                                    className={`grid grid-cols-12 items-center py-4 sm:py-5 px-6 transition-all ${isEliminated
-                                            ? 'opacity-30 bg-[#0B0C10] line-through'
-                                            : isLead
-                                                ? 'bg-[#DC2626]/20 font-bold border-l-8 border-[#DC2626]'
-                                                : pos % 2 === 0
-                                                    ? 'bg-[#12131A]'
-                                                    : 'bg-[#1A1C26]/50'
+                                    className={`grid grid-cols-12 items-center py-4 sm:py-5 px-6 transition-all ${isGold
+                                            ? 'bg-[#F59E0B]/20 font-bold border-l-8 border-[#F59E0B]'
+                                            : isEliminated
+                                                ? 'opacity-30 bg-[#0B0C10] line-through'
+                                                : isLead
+                                                    ? 'bg-[#DC2626]/20 font-bold border-l-8 border-[#DC2626]'
+                                                    : pos % 2 === 0
+                                                        ? 'bg-[#12131A]'
+                                                        : 'bg-[#1A1C26]/50'
                                         }`}
                                 >
                                     {/* Position */}
                                     <div className="col-span-1 text-center font-bold">
-                                        <span className={`inline-flex items-center justify-center w-9 h-9 rounded-lg text-lg sm:text-2xl font-bold ${isLead ? 'bg-[#F59E0B] text-[#0B0C10]' : pos <= 3 ? 'bg-[#282B3A] text-[#F8FAFC]' : 'text-[#64748B]'
+                                        <span className={`inline-flex items-center justify-center w-9 h-9 rounded-lg text-lg sm:text-2xl font-bold ${isGold
+                                                ? 'bg-[#F59E0B] text-[#0B0C10]'
+                                                : isLead
+                                                    ? 'bg-[#F59E0B] text-[#0B0C10]'
+                                                    : pos <= 3
+                                                        ? 'bg-[#282B3A] text-[#F8FAFC]'
+                                                        : 'text-[#64748B]'
                                             }`}>
                                             {pos}
                                         </span>
                                     </div>
 
-                                    {/* Bib */}
-                                    <div className="col-span-1 font-mono text-base sm:text-xl font-bold text-[#F59E0B]">
-                                        {ath.bib}
-                                    </div>
-
-                                    {/* Name + NOC */}
-                                    <div className="col-span-6 flex items-center gap-3">
+                                    {/* Athlete Name (ONLY athlete name) */}
+                                    <div className="col-span-5 flex items-center gap-3">
                                         <span className="font-headline-sm text-2xl sm:text-3xl text-[#F8FAFC] uppercase tracking-wide truncate">
                                             {ath.name}
                                         </span>
-                                        <span className="px-2 py-0.5 rounded bg-[#282B3A] text-xs font-bold text-[#64748B]">
-                                            {ath.noc}
-                                        </span>
+                                        {isGold && (
+                                            <span className="px-2.5 py-1 rounded bg-[#F59E0B] text-[#0B0C10] text-xs font-bold flex items-center gap-1">
+                                                <Trophy className="w-3.5 h-3.5" /> WINNER
+                                            </span>
+                                        )}
                                     </div>
 
-                                    {/* Last Shot */}
-                                    <div className="col-span-2 text-right font-mono text-xl sm:text-2xl text-[#64748B]">
-                                        {ath.lastShot !== undefined ? ath.lastShot.toFixed(1) : '-'}
+                                    {/* Department (Replaced NOC) */}
+                                    <div className="col-span-2 text-center font-mono text-xl sm:text-2xl text-[#94A3B8] font-bold">
+                                        {ath.department}
+                                    </div>
+
+                                    {/* Lagging By */}
+                                    <div className="col-span-2 text-right font-mono text-2xl sm:text-3xl font-bold text-[#F59E0B]">
+                                        {ath.laggingBy ?? '—'}
                                     </div>
 
                                     {/* Total Score */}
                                     <div className="col-span-2 text-right font-mono text-3xl sm:text-4xl font-bold text-[#F8FAFC]">
-                                        {isFinal ? (ath.finalTotal || 0).toFixed(1) : ath.qualificationTotal.toFixed(1)}
+                                        {ath.finalTotal.toFixed(1)}
                                     </div>
                                 </div>
                             );
@@ -123,11 +133,11 @@ export default function VenueDisplay() {
                         LIVE VENUE SCORE STREAMING
                     </span>
                     <span>|</span>
-                    <span>ISSF ELECTRONIC TARGETRY PROTOCOL</span>
+                    <span>ISSF 24-SHOT FINALS ENGINE</span>
                 </div>
 
                 <div className="text-[#F8FAFC] font-bold">
-                    SHOT 18 / 24 • FINAL STAGE
+                    LAKSHYA 2.0 CHAMPIONSHIP FINALS
                 </div>
             </div>
 

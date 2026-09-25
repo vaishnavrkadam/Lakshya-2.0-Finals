@@ -4,16 +4,29 @@ import {
     Shield,
     CheckCircle2,
     Tv,
-    FileSpreadsheet,
+    UserPlus,
+    Edit2,
+    Trash2,
+    AlertCircle,
+    X,
+    Save,
+    RotateCcw,
     Upload,
-    Check,
-    AlertTriangle
+    Check
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import type { Participant } from '../types/shooting';
+import type { Discipline, Participant, AthleteResult } from '../types/shooting';
+import { storage, storageRef, uploadBytes, getDownloadURL } from '../config/firebase';
 
 export default function AdminDashboard() {
-    const { liveState, updateLiveState, participants, importParticipants } = useLiveData();
+    const {
+        liveState,
+        updateLiveState,
+        athleteResults,
+        registerFinalist,
+        updateFinalist,
+        deleteFinalist,
+        resetCompetitionScores
+    } = useLiveData();
 
     // YouTube Live settings state
     const [ytVideoIdInput, setYtVideoIdInput] = useState<string>(liveState.youtubeVideoId);
@@ -21,11 +34,31 @@ export default function AdminDashboard() {
     const [ytCameraInput, setYtCameraInput] = useState<string>(liveState.cameraName);
     const [ytSavedMessage, setYtSavedMessage] = useState<boolean>(false);
 
-    // CSV/XLSX Importer State
-    const [importPreview, setImportPreview] = useState<Participant[]>([]);
-    const [importErrors, setImportErrors] = useState<string[]>([]);
-    const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
-    const [importedCountMessage, setImportedCountMessage] = useState<string | null>(null);
+    // Filter finalists tab in Admin
+    const [adminVerticalTab, setAdminVerticalTab] = useState<'ALL' | Discipline>('ALL');
+
+    // Registration / Edit Modal State
+    const [modalOpen, setModalOpen] = useState(false);
+    const [editingAthleteId, setEditingAthleteId] = useState<string | null>(null);
+
+    // Form fields
+    const [formName, setFormName] = useState('');
+    const [formUsn, setFormUsn] = useState('');
+    const [formDepartment, setFormDepartment] = useState('');
+    const [formVertical, setFormVertical] = useState<Discipline>('10m_rifle');
+    const [formAchievements, setFormAchievements] = useState('');
+    const [formInitialScore, setFormInitialScore] = useState<string>('620.0');
+    const [formPhotoUrl, setFormPhotoUrl] = useState<string>('');
+    const [photoUploading, setPhotoUploading] = useState(false);
+    const [formError, setFormError] = useState<string | null>(null);
+    const [formSuccess, setFormSuccess] = useState<string | null>(null);
+
+    // Reset confirmation modal
+    const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+
+    // Counts
+    const rifleAthletes = athleteResults.filter(a => a.discipline === '10m_rifle');
+    const pistolAthletes = athleteResults.filter(a => a.discipline === '10m_pistol');
 
     const handleUpdateStreamSettings = (e: React.FormEvent) => {
         e.preventDefault();
@@ -38,229 +71,397 @@ export default function AdminDashboard() {
         setTimeout(() => setYtSavedMessage(false), 3000);
     };
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const openRegisterModal = () => {
+        setEditingAthleteId(null);
+        setFormName('');
+        setFormUsn('');
+        setFormDepartment('');
+        setFormVertical(rifleAthletes.length >= 8 ? '10m_pistol' : '10m_rifle');
+        setFormAchievements('');
+        setFormInitialScore('620.0');
+        setFormPhotoUrl('');
+        setFormError(null);
+        setModalOpen(true);
+    };
+
+    const openEditModal = (ath: AthleteResult) => {
+        setEditingAthleteId(ath.participantId);
+        setFormName(ath.name);
+        setFormUsn(ath.usn);
+        setFormDepartment(ath.department);
+        setFormVertical(ath.discipline);
+        setFormAchievements(ath.achievements || '');
+        setFormInitialScore(ath.initialScore ? String(ath.initialScore) : '600.0');
+        setFormPhotoUrl(ath.photoUrl || '');
+        setFormError(null);
+        setModalOpen(true);
+    };
+
+    const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = evt => {
+        setPhotoUploading(true);
+        setFormError(null);
+
+        try {
+            // Compress image to small square thumbnail using canvas
+            const compressedDataUrl = await compressImageFile(file, 240, 240);
+
+            // Upload to Firebase Storage if available, otherwise use compressed Data URL
             try {
-                const bstr = evt.target?.result;
-                const wb = XLSX.read(bstr, { type: 'binary' });
-                const wsname = wb.SheetNames[0];
-                const ws = wb.Sheets[wsname];
-                const data = XLSX.utils.sheet_to_json(ws) as any[];
-
-                const parsed: Participant[] = [];
-                const errors: string[] = [];
-                const seenBibs = new Set<string>();
-                const seenIds = new Set<string>();
-
-                // Existing bibs in DB
-                participants.forEach(p => seenBibs.add(p.bib));
-
-                data.forEach((row, idx) => {
-                    const bib = String(row['Bib'] || row['Bib Number'] || row['bib'] || '').trim();
-                    const name = String(row['Name'] || row['Athlete Name'] || row['name'] || '').trim();
-                    const id = String(row['Participant ID'] || row['ID'] || `p-imp-${idx + 1}`).trim();
-                    const gender = (row['Gender'] || 'M').toUpperCase().startsWith('F') ? 'F' : 'M';
-                    const category = row['Category'] || 'Senior';
-                    const club = row['Club'] || row['College'] || 'Shooting Club';
-                    const noc = row['NOC'] || 'IND';
-                    const relay = parseInt(row['Relay']) || 4;
-                    const firingPoint = parseInt(row['Firing Point'] || row['FP']) || (idx + 1);
-
-                    if (!bib) {
-                        errors.push(`Row ${idx + 1}: Missing mandatory Bib Number`);
-                    } else if (seenBibs.has(bib)) {
-                        errors.push(`Row ${idx + 1}: Duplicate Bib Number "${bib}" detected`);
-                    } else {
-                        seenBibs.add(bib);
-                    }
-
-                    if (seenIds.has(id)) {
-                        errors.push(`Row ${idx + 1}: Duplicate Participant ID "${id}" detected`);
-                    } else {
-                        seenIds.add(id);
-                    }
-
-                    if (bib && name) {
-                        parsed.push({
-                            id,
-                            bib,
-                            name,
-                            gender,
-                            category,
-                            club,
-                            noc,
-                            relay,
-                            firingPoint,
-                            discipline: liveState.discipline,
-                        });
-                    }
-                });
-
-                setImportPreview(parsed);
-                setImportErrors(errors);
-                setIsImportModalOpen(true);
-            } catch (err) {
-                alert('Error parsing CSV/XLSX file. Please check file format.');
+                const imgRef = storageRef(storage, `athletes/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
+                // Convert dataUrl to blob
+                const res = await fetch(compressedDataUrl);
+                const blob = await res.blob();
+                await uploadBytes(imgRef, blob);
+                const downloadUrl = await getDownloadURL(imgRef);
+                setFormPhotoUrl(downloadUrl);
+            } catch (_) {
+                // Graceful fallback to compressed Data URL
+                setFormPhotoUrl(compressedDataUrl);
             }
-        };
-        reader.readAsBinaryString(file);
-    };
-
-    const handleConfirmImport = () => {
-        if (importPreview.length > 0) {
-            importParticipants(importPreview);
-            setImportedCountMessage(`Successfully imported ${importPreview.length} valid participant records!`);
-            setIsImportModalOpen(false);
-            setImportPreview([]);
-            setImportErrors([]);
-            setTimeout(() => setImportedCountMessage(null), 4000);
+        } catch (err: any) {
+            setFormError('Failed to process photo. Please choose another image.');
+        } finally {
+            setPhotoUploading(false);
         }
     };
 
+    const handleFormSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        setFormError(null);
+
+        const initialScoreNum = parseFloat(formInitialScore);
+        if (isNaN(initialScoreNum) || initialScoreNum < 0) {
+            setFormError('Initial Round Score must be a valid positive decimal number.');
+            return;
+        }
+
+        if (editingAthleteId) {
+            // Update existing finalist
+            const res = updateFinalist(editingAthleteId, {
+                name: formName,
+                usn: formUsn,
+                department: formDepartment,
+                discipline: formVertical,
+                photoUrl: formPhotoUrl || undefined,
+                achievements: formAchievements || undefined,
+                initialScore: initialScoreNum,
+            });
+
+            if (!res.success) {
+                setFormError(res.message || 'Failed to update finalist.');
+                return;
+            }
+
+            setFormSuccess('Finalist updated successfully.');
+            setTimeout(() => {
+                setFormSuccess(null);
+                setModalOpen(false);
+            }, 1000);
+        } else {
+            // Register new finalist
+            const res = registerFinalist({
+                name: formName,
+                usn: formUsn,
+                department: formDepartment,
+                discipline: formVertical,
+                photoUrl: formPhotoUrl || undefined,
+                achievements: formAchievements || undefined,
+                initialScore: initialScoreNum,
+            });
+
+            if (!res.success) {
+                setFormError(res.message || 'Failed to register finalist.');
+                return;
+            }
+
+            setFormSuccess('Finalist registered successfully!');
+            setTimeout(() => {
+                setFormSuccess(null);
+                setModalOpen(false);
+            }, 1000);
+        }
+    };
+
+    const handleDelete = (id: string, name: string) => {
+        if (window.confirm(`Are you sure you want to remove finalist "${name}" from competition?`)) {
+            deleteFinalist(id);
+        }
+    };
+
+    const displayedAthletes = athleteResults.filter(a => {
+        if (adminVerticalTab === 'ALL') return true;
+        return a.discipline === adminVerticalTab;
+    });
+
     return (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 font-mono">
 
             {/* Header Banner */}
-            <div className="bg-[#12131A] p-4 rounded-xl border border-[#282B3A] flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="bg-[#12131A] p-5 rounded-2xl border border-[#282B3A] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-[#F59E0B]/20 border border-[#F59E0B] flex items-center justify-center shrink-0">
-                        <Shield className="w-5 h-5 text-[#F59E0B]" />
+                    <div className="w-12 h-12 rounded-xl bg-[#DC2626]/20 border border-[#DC2626] flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
+                        <Shield className="w-6 h-6 text-[#DC2626]" />
                     </div>
                     <div>
-                        <span className="font-mono text-xs text-[#F59E0B] font-bold tracking-widest uppercase">
-                            COMMAND PORTAL
+                        <span className="text-[10px] text-[#DC2626] font-bold tracking-widest uppercase block">
+                            ADMINISTRATOR COMMAND PORTAL
                         </span>
                         <h1 className="font-headline-sm text-2xl text-[#F8FAFC] tracking-wider uppercase">
-                            LAKSHYA CONTROL CENTER — {liveState.eventName}
+                            LAKSHYA 2.0 CONTROL CENTER
                         </h1>
                     </div>
                 </div>
+
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setResetConfirmOpen(true)}
+                        className="px-4 py-2 bg-[#1A1C26] hover:bg-[#DC2626]/20 border border-[#282B3A] hover:border-[#DC2626] text-[#EF4444] rounded-xl text-xs font-bold uppercase flex items-center gap-2 transition-colors cursor-pointer"
+                        title="Clear 24 shots and restart finals round"
+                    >
+                        <RotateCcw className="w-4 h-4" /> Reset Finals Scores
+                    </button>
+                </div>
             </div>
 
-            {/* Overview Statistics Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 font-mono">
-                <div className="bg-[#12131A] p-4 rounded-xl border border-[#282B3A]">
-                    <div className="text-[10px] text-[#64748B] uppercase">TOTAL REGISTERED</div>
-                    <div className="text-2xl font-bold text-[#F8FAFC]">{participants.length + 712}</div>
+            {/* Overview Capacity Cards (Exactly 16 Finalists: 8 Rifle + 8 Pistol) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* 10M Air Rifle Capacity */}
+                <div className="bg-[#12131A] p-4 rounded-xl border border-[#282B3A] space-y-1">
+                    <div className="text-[10px] text-[#64748B] uppercase font-bold">10M AIR RIFLE FINALISTS</div>
+                    <div className="flex items-baseline justify-between">
+                        <div className="text-2xl font-bold text-[#F8FAFC]">
+                            {rifleAthletes.length} <span className="text-sm text-[#64748B]">/ 8</span>
+                        </div>
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${rifleAthletes.length >= 8 ? 'bg-[#22C55E]/15 text-[#22C55E]' : 'bg-[#F59E0B]/15 text-[#F59E0B]'}`}>
+                            {rifleAthletes.length >= 8 ? 'FULL (8/8)' : `${8 - rifleAthletes.length} SLOTS OPEN`}
+                        </span>
+                    </div>
                 </div>
 
-                <div className="bg-[#12131A] p-4 rounded-xl border border-[#282B3A]">
-                    <div className="text-[10px] text-[#64748B] uppercase">COMPLETED QUALIFICATION</div>
-                    <div className="text-2xl font-bold text-[#22C55E]">436</div>
+                {/* 10M Air Pistol Capacity */}
+                <div className="bg-[#12131A] p-4 rounded-xl border border-[#282B3A] space-y-1">
+                    <div className="text-[10px] text-[#64748B] uppercase font-bold">10M AIR PISTOL FINALISTS</div>
+                    <div className="flex items-baseline justify-between">
+                        <div className="text-2xl font-bold text-[#F8FAFC]">
+                            {pistolAthletes.length} <span className="text-sm text-[#64748B]">/ 8</span>
+                        </div>
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${pistolAthletes.length >= 8 ? 'bg-[#22C55E]/15 text-[#22C55E]' : 'bg-[#F59E0B]/15 text-[#F59E0B]'}`}>
+                            {pistolAthletes.length >= 8 ? 'FULL (8/8)' : `${8 - pistolAthletes.length} SLOTS OPEN`}
+                        </span>
+                    </div>
                 </div>
 
-                <div className="bg-[#12131A] p-4 rounded-xl border border-[#DC2626]/60">
-                    <div className="text-[10px] text-[#DC2626] font-bold uppercase">CURRENTLY SHOOTING</div>
-                    <div className="text-2xl font-bold text-[#F8FAFC]">8</div>
-                </div>
-
-                <div className="bg-[#12131A] p-4 rounded-xl border border-[#282B3A]">
-                    <div className="text-[10px] text-[#64748B] uppercase">WAITING RELAYS</div>
-                    <div className="text-2xl font-bold text-[#F59E0B]">276</div>
+                {/* Total Finalists */}
+                <div className="bg-[#12131A] p-4 rounded-xl border border-[#DC2626]/40 space-y-1">
+                    <div className="text-[10px] text-[#DC2626] uppercase font-bold">TOTAL REGISTERED FINALISTS</div>
+                    <div className="flex items-baseline justify-between">
+                        <div className="text-2xl font-bold text-[#F8FAFC]">
+                            {athleteResults.length} <span className="text-sm text-[#64748B]">/ 16</span>
+                        </div>
+                        <span className="text-[10px] text-[#94A3B8]">
+                            MAX 16 TOTAL
+                        </span>
+                    </div>
                 </div>
             </div>
 
             {/* Main Controls Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-                {/* Left Col: CSV & XLSX Participant Importer Card (7 cols) */}
-                <div className="lg:col-span-7 space-y-6">
+                {/* Left Col: Finalists Roster & Manual Registration (8 cols) */}
+                <div className="lg:col-span-8 space-y-6">
 
-                    <div className="bg-[#12131A] p-5 rounded-xl border border-[#282B3A] space-y-4">
-                        <h2 className="font-headline-sm text-lg text-[#F8FAFC] tracking-wider uppercase border-b border-[#282B3A] pb-2 flex items-center justify-between">
-                            <span>PARTICIPANT BATCH IMPORTER (CSV / XLSX)</span>
-                            <FileSpreadsheet className="w-5 h-5 text-[#22C55E]" />
-                        </h2>
-
-                        {importedCountMessage && (
-                            <div className="p-3 bg-[#22C55E]/20 border border-[#22C55E] rounded-lg font-mono text-xs text-[#22C55E] flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4" /> {importedCountMessage}
-                            </div>
-                        )}
-
-                        <div className="p-6 border-2 border-dashed border-[#282B3A] hover:border-[#DC2626] rounded-xl text-center bg-[#0B0C10] transition-colors space-y-3">
-                            <Upload className="w-8 h-8 text-[#DC2626] mx-auto" />
-                            <div className="font-mono text-xs text-[#CBD5E1]">
-                                Upload CSV or XLSX file containing Bib, Athlete Name, Club, Gender, Category, Relay, and Firing Point
+                    <div className="bg-[#12131A] p-5 rounded-2xl border border-[#282B3A] space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#282B3A]">
+                            <div>
+                                <h2 className="font-headline-sm text-lg text-[#F8FAFC] tracking-wider uppercase">
+                                    MANUAL FINALIST REGISTRATION
+                                </h2>
+                                <p className="text-xs text-[#64748B]">
+                                    Register and manage the 16 competition finalists (8 Rifle, 8 Pistol).
+                                </p>
                             </div>
 
-                            <input
-                                type="file"
-                                accept=".csv, .xlsx, .xls"
-                                onChange={handleFileUpload}
-                                className="hidden"
-                                id="participant-file-input"
-                            />
-                            <label
-                                htmlFor="participant-file-input"
-                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#DC2626] hover:bg-[#E51A1A] text-[#F8FAFC] font-mono text-xs font-bold uppercase rounded-lg cursor-pointer shadow-lg"
+                            <button
+                                onClick={openRegisterModal}
+                                disabled={athleteResults.length >= 16}
+                                className="px-4 py-2 bg-[#DC2626] hover:bg-[#B91C1C] disabled:bg-[#4B1B1B] text-[#F8FAFC] rounded-xl text-xs font-bold uppercase flex items-center gap-2 shadow-lg transition-colors cursor-pointer self-start sm:self-auto"
                             >
-                                <FileSpreadsheet className="w-4 h-4" /> Select CSV / XLSX File
-                            </label>
+                                <UserPlus className="w-4 h-4" /> Register Finalist
+                            </button>
+                        </div>
+
+                        {/* Filter Tabs */}
+                        <div className="flex items-center gap-2 pt-1">
+                            <button
+                                onClick={() => setAdminVerticalTab('ALL')}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${adminVerticalTab === 'ALL'
+                                        ? 'bg-[#DC2626] text-[#F8FAFC]'
+                                        : 'bg-[#0B0C10] text-[#64748B] hover:text-[#F8FAFC]'
+                                    }`}
+                            >
+                                ALL ({athleteResults.length})
+                            </button>
+                            <button
+                                onClick={() => setAdminVerticalTab('10m_rifle')}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${adminVerticalTab === '10m_rifle'
+                                        ? 'bg-[#DC2626] text-[#F8FAFC]'
+                                        : 'bg-[#0B0C10] text-[#64748B] hover:text-[#F8FAFC]'
+                                    }`}
+                            >
+                                AIR RIFLE ({rifleAthletes.length}/8)
+                            </button>
+                            <button
+                                onClick={() => setAdminVerticalTab('10m_pistol')}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${adminVerticalTab === '10m_pistol'
+                                        ? 'bg-[#DC2626] text-[#F8FAFC]'
+                                        : 'bg-[#0B0C10] text-[#64748B] hover:text-[#F8FAFC]'
+                                    }`}
+                            >
+                                AIR PISTOL ({pistolAthletes.length}/8)
+                            </button>
+                        </div>
+
+                        {/* Finalists Table */}
+                        <div className="overflow-x-auto rounded-xl border border-[#282B3A] bg-[#0B0C10]">
+                            <table className="w-full text-left text-xs">
+                                <thead>
+                                    <tr className="bg-[#161822] text-[#64748B] uppercase text-[10px] border-b border-[#282B3A]">
+                                        <th className="p-3">Athlete</th>
+                                        <th className="p-3">USN</th>
+                                        <th className="p-3">Dept</th>
+                                        <th className="p-3">Vertical</th>
+                                        <th className="p-3">Initial Score</th>
+                                        <th className="p-3 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-[#282B3A]/60">
+                                    {displayedAthletes.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} className="p-6 text-center text-[#64748B]">
+                                                No finalists registered in this category. Click "+ Register Finalist" above.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        displayedAthletes.map(ath => (
+                                            <tr key={ath.participantId} className="hover:bg-[#12131A] transition-colors">
+                                                <td className="p-3">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <div className="w-8 h-8 rounded-full border border-[#282B3A] overflow-hidden bg-[#1A1C26] flex items-center justify-center shrink-0">
+                                                            {ath.photoUrl ? (
+                                                                <img src={ath.photoUrl} alt="" className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <span className="font-bold text-[#F8FAFC] text-xs">
+                                                                    {ath.name.charAt(0).toUpperCase()}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-bold text-[#F8FAFC]">{ath.name}</div>
+                                                            {ath.achievements && (
+                                                                <div className="text-[10px] text-[#F59E0B] truncate max-w-[160px]">
+                                                                    {ath.achievements}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </td>
+
+                                                <td className="p-3 text-[#F59E0B] font-bold">{ath.usn}</td>
+                                                <td className="p-3 text-[#94A3B8]">{ath.department}</td>
+                                                <td className="p-3">
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${ath.discipline === '10m_rifle' ? 'bg-[#DC2626]/20 text-[#DC2626]' : 'bg-[#F59E0B]/20 text-[#F59E0B]'}`}>
+                                                        {ath.discipline === '10m_rifle' ? 'RIFLE' : 'PISTOL'}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 font-bold text-[#F8FAFC]">{ath.initialScore.toFixed(1)}</td>
+                                                <td className="p-3 text-right">
+                                                    <div className="flex items-center justify-end gap-1.5">
+                                                        <button
+                                                            onClick={() => openEditModal(ath)}
+                                                            className="p-1.5 text-[#64748B] hover:text-[#F8FAFC] hover:bg-[#1A1C26] rounded transition-colors"
+                                                            title="Edit Finalist"
+                                                        >
+                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDelete(ath.participantId, ath.name)}
+                                                            className="p-1.5 text-[#64748B] hover:text-[#EF4444] hover:bg-[#EF4444]/10 rounded transition-colors"
+                                                            title="Delete Finalist"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
                 </div>
 
-                {/* Right Col: YouTube Live Broadcast Config (5 cols) */}
-                <div className="lg:col-span-5 space-y-6">
+                {/* Right Col: YouTube Live Stream Settings (4 cols) */}
+                <div className="lg:col-span-4 space-y-6">
 
-                    <div className="bg-[#12131A] p-5 rounded-xl border border-[#282B3A] space-y-4">
+                    <div className="bg-[#12131A] p-5 rounded-2xl border border-[#282B3A] space-y-4">
                         <h2 className="font-headline-sm text-lg text-[#F8FAFC] tracking-wider uppercase border-b border-[#282B3A] pb-2 flex items-center justify-between">
-                            <span>YOUTUBE LIVE STREAM CONFIGURATION</span>
+                            <span>LIVE STREAM BROADCAST</span>
                             <Tv className="w-5 h-5 text-[#DC2626]" />
                         </h2>
 
                         {ytSavedMessage && (
-                            <div className="p-3 bg-[#22C55E]/20 border border-[#22C55E] rounded-lg font-mono text-xs text-[#22C55E] flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4" /> YOUTUBE LIVE STREAM UPDATED! PUBLIC UI IS SYNCED.
+                            <div className="p-3 bg-[#22C55E]/15 border border-[#22C55E] rounded-xl text-xs text-[#22C55E] flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                                <span>Broadcast settings updated! Public viewer synced.</span>
                             </div>
                         )}
 
-                        <form onSubmit={handleUpdateStreamSettings} className="space-y-4 font-mono text-xs">
+                        <form onSubmit={handleUpdateStreamSettings} className="space-y-4 text-xs">
                             <div>
-                                <label className="text-[#64748B] uppercase block mb-1">YouTube Live Video ID</label>
+                                <label className="text-[#64748B] uppercase block mb-1 font-bold">YouTube Video ID</label>
                                 <input
                                     type="text"
                                     placeholder="e.g. jfKfPfyJRdk"
                                     value={ytVideoIdInput}
                                     onChange={e => setYtVideoIdInput(e.target.value)}
-                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-lg px-3 py-2 text-[#F59E0B] font-bold focus:outline-none"
+                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3 py-2.5 text-[#F59E0B] font-bold focus:outline-none"
                                 />
                                 <span className="text-[10px] text-[#64748B] mt-1 block">
-                                    Example YouTube ID extracted from video URL: <code>youtube.com/watch?v=<strong>ID</strong></code>
+                                    From URL: youtube.com/watch?v=<strong>ID</strong>
                                 </span>
                             </div>
 
                             <div>
-                                <label className="text-[#64748B] uppercase block mb-1">Stream Broadcast Title</label>
+                                <label className="text-[#64748B] uppercase block mb-1 font-bold">Broadcast Title</label>
                                 <input
                                     type="text"
                                     value={ytTitleInput}
                                     onChange={e => setYtTitleInput(e.target.value)}
-                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-lg px-3 py-2 text-[#F8FAFC] focus:outline-none"
+                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3 py-2.5 text-[#F8FAFC] focus:outline-none"
                                 />
                             </div>
 
                             <div>
-                                <label className="text-[#64748B] uppercase block mb-1">Camera Feed Name</label>
+                                <label className="text-[#64748B] uppercase block mb-1 font-bold">Camera Feed Label</label>
                                 <input
                                     type="text"
                                     value={ytCameraInput}
                                     onChange={e => setYtCameraInput(e.target.value)}
-                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-lg px-3 py-2 text-[#F8FAFC] focus:outline-none"
+                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3 py-2.5 text-[#F8FAFC] focus:outline-none"
                                 />
                             </div>
 
                             <button
                                 type="submit"
-                                className="w-full py-3 bg-[#DC2626] hover:bg-[#E51A1A] text-[#F8FAFC] font-bold uppercase rounded-lg shadow-lg flex items-center justify-center gap-2"
+                                className="w-full py-2.5 bg-[#DC2626] hover:bg-[#B91C1C] text-[#F8FAFC] font-bold uppercase rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-colors"
                             >
-                                <Tv className="w-4 h-4" /> Update Live Stream Broadcast
+                                <Save className="w-4 h-4" /> Save Stream Config
                             </button>
                         </form>
                     </div>
@@ -268,79 +469,241 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
-            {/* CSV/XLSX Import Validation & Preview Modal */}
-            {isImportModalOpen && (
+            {/* MANUAL REGISTRATION / EDIT MODAL */}
+            {modalOpen && (
                 <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-[#12131A] border border-[#282B3A] rounded-xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
+                    <div className="bg-[#12131A] border border-[#282B3A] rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl animate-fade-in font-mono">
                         <div className="flex items-center justify-between border-b border-[#282B3A] pb-3">
                             <h3 className="font-headline-sm text-lg text-[#F8FAFC] tracking-wider uppercase flex items-center gap-2">
-                                <FileSpreadsheet className="w-5 h-5 text-[#22C55E]" />
-                                IMPORT PREVIEW & DUPLICATE VALIDATION
+                                <UserPlus className="w-5 h-5 text-[#DC2626]" />
+                                {editingAthleteId ? 'EDIT FINALIST' : 'REGISTER NEW FINALIST'}
                             </h3>
                             <button
-                                onClick={() => setIsImportModalOpen(false)}
+                                onClick={() => setModalOpen(false)}
                                 className="text-[#64748B] hover:text-[#F8FAFC]"
                             >
-                                ✕
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
 
-                        {/* Error alerts if duplicates or missing fields */}
-                        {importErrors.length > 0 && (
-                            <div className="p-3 bg-[#EF4444]/15 border border-[#EF4444]/60 rounded-lg space-y-1 font-mono text-xs text-[#EF4444]">
-                                <div className="font-bold flex items-center gap-1">
-                                    <AlertTriangle className="w-4 h-4" /> Detected Validation Issues:
-                                </div>
-                                <ul className="list-disc list-inside max-h-24 overflow-y-auto space-y-0.5 text-[11px]">
-                                    {importErrors.map((err, i) => (
-                                        <li key={i}>{err}</li>
-                                    ))}
-                                </ul>
+                        {formError && (
+                            <div className="p-3 rounded-lg bg-[#EF4444]/15 border border-[#EF4444]/50 text-[#EF4444] text-xs flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 shrink-0" />
+                                <span>{formError}</span>
                             </div>
                         )}
 
-                        {/* Valid Rows Preview Table */}
-                        <div className="space-y-2 font-mono text-xs">
-                            <div className="text-[#64748B] uppercase">Valid Records Ready to Import ({importPreview.length}):</div>
-                            <div className="max-h-60 overflow-y-auto border border-[#282B3A] rounded-lg bg-[#0B0C10]">
-                                <table className="w-full text-left">
-                                    <thead className="bg-[#1A1C26] text-[#64748B] uppercase text-[10px]">
-                                        <tr>
-                                            <th className="p-2">Bib</th>
-                                            <th className="p-2">Name</th>
-                                            <th className="p-2">Club</th>
-                                            <th className="p-2">Relay</th>
-                                            <th className="p-2">FP</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-[#282B3A]/40 text-[#F8FAFC]">
-                                        {importPreview.map((p, idx) => (
-                                            <tr key={idx}>
-                                                <td className="p-2 text-[#F59E0B] font-bold">{p.bib}</td>
-                                                <td className="p-2">{p.name}</td>
-                                                <td className="p-2 text-[#64748B]">{p.club}</td>
-                                                <td className="p-2">R0{p.relay}</td>
-                                                <td className="p-2">FP {p.firingPoint}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                        {formSuccess && (
+                            <div className="p-3 rounded-lg bg-[#22C55E]/15 border border-[#22C55E]/50 text-[#22C55E] text-xs flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                                <span>{formSuccess}</span>
                             </div>
+                        )}
+
+                        <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
+                            {/* 1. Shooter Name */}
+                            <div>
+                                <label className="text-[#94A3B8] font-bold uppercase block mb-1">
+                                    1. Shooter Name <span className="text-[#DC2626]">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="e.g. Rahul Kumar"
+                                    value={formName}
+                                    onChange={e => setFormName(e.target.value)}
+                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3.5 py-2 text-[#F8FAFC] focus:outline-none"
+                                />
+                            </div>
+
+                            {/* 2. Photo Upload */}
+                            <div>
+                                <label className="text-[#94A3B8] font-bold uppercase block mb-1">
+                                    2. Athlete Photo
+                                </label>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-full border border-[#282B3A] overflow-hidden bg-[#0B0C10] flex items-center justify-center shrink-0">
+                                        {formPhotoUrl ? (
+                                            <img src={formPhotoUrl} alt="Preview" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <span className="text-xs text-[#64748B]">No pic</span>
+                                        )}
+                                    </div>
+                                    <div className="flex-1">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handlePhotoFileChange}
+                                            id="photo-file-upload"
+                                            className="hidden"
+                                        />
+                                        <label
+                                            htmlFor="photo-file-upload"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1C26] hover:bg-[#282B3A] border border-[#282B3A] text-[#CBD5E1] rounded-lg cursor-pointer text-xs font-bold"
+                                        >
+                                            <Upload className="w-3.5 h-3.5" />
+                                            {photoUploading ? 'Processing...' : 'Upload Image'}
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 3. USN & 4. Department */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[#94A3B8] font-bold uppercase block mb-1">
+                                        3. USN <span className="text-[#DC2626]">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="e.g. 1RV22CS045"
+                                        value={formUsn}
+                                        onChange={e => setFormUsn(e.target.value)}
+                                        className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3.5 py-2 text-[#F8FAFC] uppercase focus:outline-none"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-[#94A3B8] font-bold uppercase block mb-1">
+                                        4. Department <span className="text-[#DC2626]">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="e.g. CSE, ECE, ME"
+                                        value={formDepartment}
+                                        onChange={e => setFormDepartment(e.target.value)}
+                                        className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3.5 py-2 text-[#F8FAFC] focus:outline-none"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* 5. Vertical: Air Rifle / Air Pistol */}
+                            <div>
+                                <label className="text-[#94A3B8] font-bold uppercase block mb-1">
+                                    5. Vertical <span className="text-[#DC2626]">*</span>
+                                </label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <label
+                                        className={`p-2.5 rounded-xl border text-center cursor-pointer transition-all ${formVertical === '10m_rifle'
+                                                ? 'bg-[#DC2626]/20 border-[#DC2626] text-[#F8FAFC] font-bold'
+                                                : 'bg-[#0B0C10] border-[#282B3A] text-[#64748B]'
+                                            }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="vertical"
+                                            value="10m_rifle"
+                                            checked={formVertical === '10m_rifle'}
+                                            onChange={() => setFormVertical('10m_rifle')}
+                                            className="hidden"
+                                        />
+                                        10M AIR RIFLE ({rifleAthletes.length}/8)
+                                    </label>
+
+                                    <label
+                                        className={`p-2.5 rounded-xl border text-center cursor-pointer transition-all ${formVertical === '10m_pistol'
+                                                ? 'bg-[#F59E0B]/20 border-[#F59E0B] text-[#F8FAFC] font-bold'
+                                                : 'bg-[#0B0C10] border-[#282B3A] text-[#64748B]'
+                                            }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="vertical"
+                                            value="10m_pistol"
+                                            checked={formVertical === '10m_pistol'}
+                                            onChange={() => setFormVertical('10m_pistol')}
+                                            className="hidden"
+                                        />
+                                        10M AIR PISTOL ({pistolAthletes.length}/8)
+                                    </label>
+                                </div>
+                            </div>
+
+                            {/* 6. Achievements (Optional) */}
+                            <div>
+                                <label className="text-[#94A3B8] font-bold uppercase block mb-1">
+                                    6. Achievements (Optional)
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. State Gold Medalist 2025, Nationals"
+                                    value={formAchievements}
+                                    onChange={e => setFormAchievements(e.target.value)}
+                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3.5 py-2 text-[#F8FAFC] focus:outline-none"
+                                />
+                            </div>
+
+                            {/* 7. Initial Round Score */}
+                            <div>
+                                <label className="text-[#94A3B8] font-bold uppercase block mb-1">
+                                    7. Initial Round Score <span className="text-[#DC2626]">*</span>
+                                </label>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    required
+                                    placeholder="e.g. 624.5"
+                                    value={formInitialScore}
+                                    onChange={e => setFormInitialScore(e.target.value)}
+                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3.5 py-2 text-[#F8FAFC] font-bold focus:outline-none"
+                                />
+                            </div>
+
+                            {/* Submit & Cancel */}
+                            <div className="pt-2 flex items-center justify-end gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setModalOpen(false)}
+                                    className="px-4 py-2 bg-[#1A1C26] hover:bg-[#282B3A] text-[#64748B] hover:text-[#F8FAFC] rounded-xl uppercase font-bold"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-5 py-2 bg-[#DC2626] hover:bg-[#B91C1C] text-[#F8FAFC] font-bold rounded-xl uppercase flex items-center gap-2 shadow-lg"
+                                >
+                                    <Check className="w-4 h-4" />
+                                    {editingAthleteId ? 'Save Changes' : 'Confirm Registration'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* RESET SCORES CONFIRMATION MODAL */}
+            {resetConfirmOpen && (
+                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-[#12131A] border border-[#EF4444] rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl font-mono">
+                        <div className="flex items-center gap-3 text-[#EF4444]">
+                            <AlertCircle className="w-6 h-6" />
+                            <h3 className="font-headline-sm text-lg uppercase tracking-wider text-[#F8FAFC]">
+                                RESET FINALS SCORES?
+                            </h3>
                         </div>
 
-                        <div className="pt-2 flex items-center justify-end gap-3 font-mono text-xs">
+                        <p className="text-xs text-[#94A3B8]">
+                            This will clear all 24 shots and reset the competition scores for the active discipline (<strong>{liveState.discipline === '10m_rifle' ? '10M Air Rifle' : '10M Air Pistol'}</strong>) to start a fresh finals match. Registered finalists will be preserved.
+                        </p>
+
+                        <div className="flex items-center justify-end gap-3 pt-2">
                             <button
-                                onClick={() => setIsImportModalOpen(false)}
-                                className="px-4 py-2 bg-[#1A1C26] text-[#64748B] hover:text-[#F8FAFC] rounded uppercase"
+                                onClick={() => setResetConfirmOpen(false)}
+                                className="px-4 py-2 bg-[#1A1C26] hover:bg-[#282B3A] text-[#64748B] hover:text-[#F8FAFC] rounded-xl text-xs uppercase font-bold"
                             >
                                 Cancel
                             </button>
                             <button
-                                onClick={handleConfirmImport}
-                                disabled={importPreview.length === 0}
-                                className="px-5 py-2 bg-[#22C55E] hover:bg-[#16A34A] text-[#0B0C10] font-bold rounded uppercase flex items-center gap-2 shadow-lg"
+                                onClick={() => {
+                                    resetCompetitionScores();
+                                    setResetConfirmOpen(false);
+                                }}
+                                className="px-5 py-2 bg-[#EF4444] hover:bg-[#DC2626] text-[#F8FAFC] rounded-xl text-xs uppercase font-bold shadow-lg"
                             >
-                                <Check className="w-4 h-4" /> Import {importPreview.length} Records
+                                Yes, Reset Scores
                             </button>
                         </div>
                     </div>
@@ -349,4 +712,41 @@ export default function AdminDashboard() {
 
         </div>
     );
+}
+
+// Client-side image compression helper
+async function compressImageFile(file: File, maxWidth: number, maxHeight: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = event => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+
+                // Crop / resize to square
+                const minSide = Math.min(width, height);
+                const sx = (width - minSide) / 2;
+                const sy = (height - minSide) / 2;
+
+                canvas.width = maxWidth;
+                canvas.height = maxHeight;
+
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    resolve(event.target?.result as string);
+                    return;
+                }
+
+                ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, maxWidth, maxHeight);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                resolve(dataUrl);
+            };
+            img.onerror = () => reject(new Error('Image load failed'));
+        };
+        reader.onerror = () => reject(new Error('File read failed'));
+    });
 }
