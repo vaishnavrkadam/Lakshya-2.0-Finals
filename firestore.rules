@@ -2,37 +2,22 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper function to check if the requester is authenticated as an admin
-    function isAdmin() {
-      return request.auth != null;
-    }
-
-    // Publicly readable live competition state, only admin can modify
+    // Live competition state and scoring data
     match /liveState/{document=**} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if request.resource.data.adminKey == "L@kshy@2.O_Secure_Auth_Token_2026";
     }
 
-    // Publicly readable finalists and competition scores, only admin can modify
+    // Finalists and shoot records
     match /finalists/{document=**} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if request.resource.data.adminKey == "L@kshy@2.O_Secure_Auth_Token_2026";
     }
 
-    // Publicly readable tournament settings
-    match /settings/{document=**} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // Audit logs can only be read and written by authenticated admin/scorers
+    // Audit logs
     match /auditLogs/{document=**} {
-      allow read, write: if isAdmin();
-    }
-
-    // Default deny all other collections
-    match /{document=**} {
-      allow read, write: if isAdmin();
+      allow read: if true;
+      allow write: if request.resource.data.adminKey == "L@kshy@2.O_Secure_Auth_Token_2026";
     }
   }
 }

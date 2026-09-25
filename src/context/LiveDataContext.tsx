@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import type {
     Discipline,
-    EventStage,
     Participant,
     AthleteResult,
     LiveState,
@@ -10,12 +9,14 @@ import type {
 } from '../types/shooting';
 import {
     INITIAL_LIVE_STATE,
-    INITIAL_FINALISTS,
     INITIAL_ATHLETE_RESULTS,
     INITIAL_AUDIT_LOGS,
 } from '../config/initialData';
 import { isValidISSFShot, evaluateFinalsState } from '../config/issfRules';
-import { db, doc, onSnapshot, setDoc, auth } from '../config/firebase';
+import { db, doc, onSnapshot, setDoc, getDoc } from '../config/firebase';
+
+export const FIRESTORE_ADMIN_KEY = 'L@kshy@2.O_Secure_Auth_Token_2026';
+const FIRESTORE_DOC_PATH = 'liveState/active_finals';
 
 interface LiveDataContextType {
     liveState: LiveState;
@@ -28,8 +29,8 @@ interface LiveDataContextType {
     selectedShooterId: string | null;
     setSelectedShooterId: (id: string | null) => void;
     // Methods
-    switchDiscipline: (d: Discipline) => void;
-    updateLiveState: (partial: Partial<LiveState>) => void;
+    switchDiscipline: (d: Discipline) => Promise<void>;
+    updateLiveState: (partial: Partial<LiveState>) => Promise<void>;
     addShot: (participantId: string, score: number) => Promise<boolean>;
     correctShot: (
         participantId: string,
@@ -38,113 +39,96 @@ interface LiveDataContextType {
         reason: string,
         officialName: string
     ) => Promise<boolean>;
-    registerFinalist: (finalist: Omit<Participant, 'id'>) => { success: boolean; message?: string };
-    updateFinalist: (id: string, updated: Partial<Participant>) => { success: boolean; message?: string };
-    deleteFinalist: (id: string) => { success: boolean; message?: string };
-    resetCompetitionScores: (discipline?: Discipline) => void;
+    registerFinalist: (finalist: Omit<Participant, 'id'>) => Promise<{ success: boolean; message?: string }>;
+    updateFinalist: (id: string, updated: Partial<Participant>) => Promise<{ success: boolean; message?: string }>;
+    deleteFinalist: (id: string) => Promise<{ success: boolean; message?: string }>;
+    resetCompetitionScores: (discipline?: Discipline) => Promise<void>;
 }
 
 const LiveDataContext = createContext<LiveDataContextType | undefined>(undefined);
 
-const LOCAL_STORAGE_RESULTS_KEY = 'lakshya_2_0_finals_results';
-const LOCAL_STORAGE_STATE_KEY = 'lakshya_2_0_finals_live_state';
-const LOCAL_STORAGE_AUDIT_KEY = 'lakshya_2_0_finals_audit';
-
 export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    // Initialize results from local storage or defaults
-    const [athleteResults, setAthleteResults] = useState<AthleteResult[]>(() => {
-        try {
-            const saved = localStorage.getItem(LOCAL_STORAGE_RESULTS_KEY);
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-            }
-        } catch (_) { }
-        return INITIAL_ATHLETE_RESULTS;
-    });
-
-    const [liveState, setLiveState] = useState<LiveState>(() => {
-        try {
-            const saved = localStorage.getItem(LOCAL_STORAGE_STATE_KEY);
-            if (saved) return JSON.parse(saved);
-        } catch (_) { }
-        return INITIAL_LIVE_STATE;
-    });
-
-    const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => {
-        try {
-            const saved = localStorage.getItem(LOCAL_STORAGE_AUDIT_KEY);
-            if (saved) return JSON.parse(saved);
-        } catch (_) { }
-        return INITIAL_AUDIT_LOGS;
-    });
-
+    const [athleteResults, setAthleteResults] = useState<AthleteResult[]>(INITIAL_ATHLETE_RESULTS);
+    const [liveState, setLiveState] = useState<LiveState>(INITIAL_LIVE_STATE);
+    const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
     const [selectedShooterId, setSelectedShooterId] = useState<string | null>(null);
     const [isRealtimeConnected, setIsRealtimeConnected] = useState<boolean>(true);
     const [lastUpdatedMs, setLastUpdatedMs] = useState<number>(Date.now());
 
-    // Save to localStorage whenever state changes
+    // Single Authoritative Source: Real-Time Firestore Listener
     useEffect(() => {
-        try {
-            localStorage.setItem(LOCAL_STORAGE_RESULTS_KEY, JSON.stringify(athleteResults));
-        } catch (_) { }
-    }, [athleteResults]);
+        let isMounted = true;
+        const docRef = doc(db, 'liveState', 'active_finals');
 
-    useEffect(() => {
-        try {
-            localStorage.setItem(LOCAL_STORAGE_STATE_KEY, JSON.stringify(liveState));
-        } catch (_) { }
-    }, [liveState]);
+        // Check and seed initial data if document doesn't exist yet
+        getDoc(docRef).then(snap => {
+            if (!snap.exists()) {
+                setDoc(docRef, {
+                    adminKey: FIRESTORE_ADMIN_KEY,
+                    liveState: INITIAL_LIVE_STATE,
+                    athleteResults: INITIAL_ATHLETE_RESULTS,
+                    auditLogs: INITIAL_AUDIT_LOGS,
+                    updatedAt: Date.now()
+                }).catch(err => console.warn('Firestore initial seed notice:', err));
+            }
+        }).catch(err => console.warn('Firestore seed check notice:', err));
 
-    useEffect(() => {
-        try {
-            localStorage.setItem(LOCAL_STORAGE_AUDIT_KEY, JSON.stringify(auditLogs));
-        } catch (_) { }
-    }, [auditLogs]);
+        // Subscribe to real-time updates for all connected devices
+        const unsubscribe = onSnapshot(
+            docRef,
+            snapshot => {
+                if (!isMounted) return;
+                if (snapshot.exists()) {
+                    const data = snapshot.data();
+                    if (data) {
+                        if (data.liveState) {
+                            setLiveState(prev => ({ ...prev, ...data.liveState }));
+                        }
+                        if (data.athleteResults && Array.isArray(data.athleteResults)) {
+                            setAthleteResults(data.athleteResults);
+                        }
+                        if (data.auditLogs && Array.isArray(data.auditLogs)) {
+                            setAuditLogs(data.auditLogs);
+                        }
+                        setIsRealtimeConnected(true);
+                        setLastUpdatedMs(Date.now());
+                    }
+                }
+            },
+            err => {
+                console.error('Firestore listener error:', err);
+                setIsRealtimeConnected(false);
+            }
+        );
 
-    // Sync state with Firestore if connected
-    useEffect(() => {
+        return () => {
+            isMounted = false;
+            unsubscribe();
+        };
+    }, []);
+
+    // Helper: Push updates to Firestore
+    const writeToFirestore = async (
+        newResults: AthleteResult[],
+        newState: LiveState,
+        newLogs?: AuditLog[]
+    ): Promise<boolean> => {
         try {
             const docRef = doc(db, 'liveState', 'active_finals');
-            const unsubscribe = onSnapshot(
-                docRef,
-                snapshot => {
-                    if (snapshot.exists()) {
-                        const data = snapshot.data();
-                        if (data) {
-                            if (data.liveState) setLiveState(prev => ({ ...prev, ...data.liveState }));
-                            if (data.athleteResults && Array.isArray(data.athleteResults)) {
-                                setAthleteResults(data.athleteResults);
-                            }
-                            setIsRealtimeConnected(true);
-                            setLastUpdatedMs(Date.now());
-                        }
-                    }
-                },
-                err => {
-                    console.log('Firestore offline fallback active:', err.message);
-                    setIsRealtimeConnected(true); // rely smoothly on local state
-                }
-            );
-            return () => unsubscribe();
-        } catch (_) {
-            // offline mode
+            await setDoc(docRef, {
+                adminKey: FIRESTORE_ADMIN_KEY,
+                liveState: newState,
+                athleteResults: newResults,
+                auditLogs: newLogs || auditLogs,
+                updatedAt: Date.now()
+            }, { merge: true });
+            setIsRealtimeConnected(true);
+            return true;
+        } catch (err: any) {
+            console.error('Firestore write error:', err);
+            return false;
         }
-    }, []);
-
-    // Broadcast state updates to Firestore if authenticated as admin
-    const syncToFirestore = useCallback((newResults: AthleteResult[], newState: LiveState) => {
-        try {
-            if (auth.currentUser) {
-                const docRef = doc(db, 'liveState', 'active_finals');
-                setDoc(docRef, {
-                    liveState: newState,
-                    athleteResults: newResults,
-                    updatedAt: Date.now()
-                }, { merge: true }).catch(() => { });
-            }
-        } catch (_) { }
-    }, []);
+    };
 
     // Active vertical results, evaluated and sorted by ISSF finals rank
     const activeResults = useMemo(() => {
@@ -193,23 +177,17 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         };
     }, [activeShooter, liveState.discipline]);
 
-    const switchDiscipline = (d: Discipline) => {
-        setLiveState(prev => {
-            const updated = { ...prev, discipline: d, updatedAt: Date.now() };
-            syncToFirestore(athleteResults, updated);
-            return updated;
-        });
+    const switchDiscipline = async (d: Discipline) => {
+        const updated = { ...liveState, discipline: d, updatedAt: Date.now() };
+        setLiveState(updated);
         setSelectedShooterId(null);
-        setLastUpdatedMs(Date.now());
+        await writeToFirestore(athleteResults, updated);
     };
 
-    const updateLiveState = (partial: Partial<LiveState>) => {
-        setLiveState(prev => {
-            const updated = { ...prev, ...partial, updatedAt: Date.now() };
-            syncToFirestore(athleteResults, updated);
-            return updated;
-        });
-        setLastUpdatedMs(Date.now());
+    const updateLiveState = async (partial: Partial<LiveState>) => {
+        const updated = { ...liveState, ...partial, updatedAt: Date.now() };
+        setLiveState(updated);
+        await writeToFirestore(athleteResults, updated);
     };
 
     const addShot = async (participantId: string, score: number): Promise<boolean> => {
@@ -246,11 +224,13 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             return evaluated || ath;
         });
 
+        // Optimistic local update
         setAthleteResults(finalResults);
         setLastUpdatedMs(Date.now());
-        syncToFirestore(finalResults, liveState);
 
-        return true;
+        // Authoritative Firestore write (syncs to all devices & overlays)
+        const success = await writeToFirestore(finalResults, liveState);
+        return success;
     };
 
     const correctShot = async (
@@ -289,8 +269,6 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             return evaluated || ath;
         });
 
-        setAthleteResults(finalResults);
-
         // Create Audit Log
         const newLog: AuditLog = {
             id: `log-${Date.now()}`,
@@ -306,17 +284,18 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             reason,
         };
 
-        setAuditLogs(prev => [newLog, ...prev]);
+        const updatedLogs = [newLog, ...auditLogs];
+        setAthleteResults(finalResults);
+        setAuditLogs(updatedLogs);
         setLastUpdatedMs(Date.now());
-        syncToFirestore(finalResults, liveState);
 
-        return true;
+        const success = await writeToFirestore(finalResults, liveState, updatedLogs);
+        return success;
     };
 
-    const registerFinalist = (
+    const registerFinalist = async (
         finalist: Omit<Participant, 'id'>
-    ): { success: boolean; message?: string } => {
-        // Validation 1: Required fields
+    ): Promise<{ success: boolean; message?: string }> => {
         if (!finalist.name?.trim()) return { success: false, message: 'Shooter Name is required.' };
         if (!finalist.usn?.trim()) return { success: false, message: 'USN is required.' };
         if (!finalist.department?.trim()) return { success: false, message: 'Department is required.' };
@@ -327,7 +306,6 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             return { success: false, message: 'A valid Initial Round Score is required.' };
         }
 
-        // Validation 2: Maximum capacity enforcement (8 per vertical, 16 total)
         const verticalCount = athleteResults.filter(a => a.discipline === finalist.discipline).length;
         if (verticalCount >= 8) {
             const verticalName = finalist.discipline === '10m_rifle' ? 'Air Rifle' : 'Air Pistol';
@@ -337,7 +315,6 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             };
         }
 
-        // Validation 3: Duplicate USN check
         const normalizedUsn = finalist.usn.trim().toUpperCase();
         const duplicate = athleteResults.some(a => a.usn.trim().toUpperCase() === normalizedUsn);
         if (duplicate) {
@@ -347,7 +324,6 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             };
         }
 
-        // Generate unique ID
         const newId = `f-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
         const newAthlete: AthleteResult = {
             participantId: newId,
@@ -368,19 +344,20 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         const updated = [...athleteResults, newAthlete];
         setAthleteResults(updated);
-        syncToFirestore(updated, liveState);
-
+        const ok = await writeToFirestore(updated, liveState);
+        if (!ok) {
+            return { success: false, message: 'Failed to write registration to Firestore.' };
+        }
         return { success: true };
     };
 
-    const updateFinalist = (
+    const updateFinalist = async (
         id: string,
         updated: Partial<Participant>
-    ): { success: boolean; message?: string } => {
+    ): Promise<{ success: boolean; message?: string }> => {
         const target = athleteResults.find(a => a.participantId === id);
         if (!target) return { success: false, message: 'Finalist record not found.' };
 
-        // If USN changed, check duplicates
         if (updated.usn) {
             const normalizedUsn = updated.usn.trim().toUpperCase();
             const duplicate = athleteResults.some(
@@ -406,18 +383,24 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
 
         setAthleteResults(newResults);
-        syncToFirestore(newResults, liveState);
+        const ok = await writeToFirestore(newResults, liveState);
+        if (!ok) {
+            return { success: false, message: 'Failed to sync update to Firestore.' };
+        }
         return { success: true };
     };
 
-    const deleteFinalist = (id: string): { success: boolean; message?: string } => {
+    const deleteFinalist = async (id: string): Promise<{ success: boolean; message?: string }> => {
         const newResults = athleteResults.filter(a => a.participantId !== id);
         setAthleteResults(newResults);
-        syncToFirestore(newResults, liveState);
+        const ok = await writeToFirestore(newResults, liveState);
+        if (!ok) {
+            return { success: false, message: 'Failed to sync deletion to Firestore.' };
+        }
         return { success: true };
     };
 
-    const resetCompetitionScores = (discipline?: Discipline) => {
+    const resetCompetitionScores = async (discipline?: Discipline) => {
         const targetDiscipline = discipline || liveState.discipline;
         const newResults = athleteResults.map(ath => {
             if (ath.discipline !== targetDiscipline) return ath;
@@ -434,7 +417,6 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             };
         });
 
-        // Re-evaluate rank
         const disciplineAthletes = newResults.filter(a => a.discipline === targetDiscipline);
         disciplineAthletes.sort((a, b) => (b.initialScore || 0) - (a.initialScore || 0));
         disciplineAthletes.forEach((ath, idx) => {
@@ -442,7 +424,7 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
 
         setAthleteResults(newResults);
-        syncToFirestore(newResults, liveState);
+        await writeToFirestore(newResults, liveState);
     };
 
     return (

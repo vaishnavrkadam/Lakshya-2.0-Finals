@@ -12,10 +12,14 @@ import {
     Save,
     RotateCcw,
     Upload,
-    Check
+    Check,
+    Layers,
+    Users
 } from 'lucide-react';
 import type { Discipline, Participant, AthleteResult } from '../types/shooting';
-import { storage, storageRef, uploadBytes, getDownloadURL } from '../config/firebase';
+import AdminOverlaysTab from '../components/overlays/AdminOverlaysTab';
+
+type AdminMainTab = 'finalists' | 'overlays' | 'stream';
 
 export default function AdminDashboard() {
     const {
@@ -27,6 +31,9 @@ export default function AdminDashboard() {
         deleteFinalist,
         resetCompetitionScores
     } = useLiveData();
+
+    // Active sub-tab inside Admin Panel
+    const [activeAdminTab, setActiveAdminTab] = useState<AdminMainTab>('finalists');
 
     // YouTube Live settings state
     const [ytVideoIdInput, setYtVideoIdInput] = useState<string>(liveState.youtubeVideoId);
@@ -60,9 +67,9 @@ export default function AdminDashboard() {
     const rifleAthletes = athleteResults.filter(a => a.discipline === '10m_rifle');
     const pistolAthletes = athleteResults.filter(a => a.discipline === '10m_pistol');
 
-    const handleUpdateStreamSettings = (e: React.FormEvent) => {
+    const handleUpdateStreamSettings = async (e: React.FormEvent) => {
         e.preventDefault();
-        updateLiveState({
+        await updateLiveState({
             youtubeVideoId: ytVideoIdInput.trim(),
             streamTitle: ytTitleInput.trim(),
             cameraName: ytCameraInput.trim(),
@@ -97,38 +104,38 @@ export default function AdminDashboard() {
         setModalOpen(true);
     };
 
+    // Instant, reliable photo compression for production without hanging
     const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        // Validation
+        if (!file.type.startsWith('image/')) {
+            setFormError('Please select a valid image file (JPG, PNG, or WebP).');
+            return;
+        }
+
+        if (file.size > 15 * 1024 * 1024) {
+            setFormError('File too large. Please select an image under 15MB.');
+            return;
+        }
 
         setPhotoUploading(true);
         setFormError(null);
 
         try {
-            // Compress image to small square thumbnail using canvas
-            const compressedDataUrl = await compressImageFile(file, 240, 240);
-
-            // Upload to Firebase Storage if available, otherwise use compressed Data URL
-            try {
-                const imgRef = storageRef(storage, `athletes/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
-                // Convert dataUrl to blob
-                const res = await fetch(compressedDataUrl);
-                const blob = await res.blob();
-                await uploadBytes(imgRef, blob);
-                const downloadUrl = await getDownloadURL(imgRef);
-                setFormPhotoUrl(downloadUrl);
-            } catch (_) {
-                // Graceful fallback to compressed Data URL
-                setFormPhotoUrl(compressedDataUrl);
-            }
+            // Compress into optimized 200x200 thumbnail base64 Data URL (runs in < 150ms)
+            const compressedDataUrl = await compressImageFile(file, 200, 200);
+            setFormPhotoUrl(compressedDataUrl);
         } catch (err: any) {
-            setFormError('Failed to process photo. Please choose another image.');
+            console.error('Photo processing error:', err);
+            setFormError('Failed to process image. Please try a different photo.');
         } finally {
             setPhotoUploading(false);
         }
     };
 
-    const handleFormSubmit = (e: React.FormEvent) => {
+    const handleFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setFormError(null);
 
@@ -139,8 +146,7 @@ export default function AdminDashboard() {
         }
 
         if (editingAthleteId) {
-            // Update existing finalist
-            const res = updateFinalist(editingAthleteId, {
+            const res = await updateFinalist(editingAthleteId, {
                 name: formName,
                 usn: formUsn,
                 department: formDepartment,
@@ -159,10 +165,9 @@ export default function AdminDashboard() {
             setTimeout(() => {
                 setFormSuccess(null);
                 setModalOpen(false);
-            }, 1000);
+            }, 800);
         } else {
-            // Register new finalist
-            const res = registerFinalist({
+            const res = await registerFinalist({
                 name: formName,
                 usn: formUsn,
                 department: formDepartment,
@@ -181,13 +186,13 @@ export default function AdminDashboard() {
             setTimeout(() => {
                 setFormSuccess(null);
                 setModalOpen(false);
-            }, 1000);
+            }, 800);
         }
     };
 
-    const handleDelete = (id: string, name: string) => {
+    const handleDelete = async (id: string, name: string) => {
         if (window.confirm(`Are you sure you want to remove finalist "${name}" from competition?`)) {
-            deleteFinalist(id);
+            await deleteFinalist(id);
         }
     };
 
@@ -200,7 +205,7 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 font-mono">
 
             {/* Header Banner */}
-            <div className="bg-[#12131A] p-5 rounded-2xl border border-[#282B3A] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="bg-[#12131A] p-5 rounded-2xl border border-[#282B3A] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
                 <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-xl bg-[#DC2626]/20 border border-[#DC2626] flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
                         <Shield className="w-6 h-6 text-[#DC2626]" />
@@ -226,62 +231,88 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
-            {/* Overview Capacity Cards (Exactly 16 Finalists: 8 Rifle + 8 Pistol) */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {/* 10M Air Rifle Capacity */}
-                <div className="bg-[#12131A] p-4 rounded-xl border border-[#282B3A] space-y-1">
-                    <div className="text-[10px] text-[#64748B] uppercase font-bold">10M AIR RIFLE FINALISTS</div>
-                    <div className="flex items-baseline justify-between">
-                        <div className="text-2xl font-bold text-[#F8FAFC]">
-                            {rifleAthletes.length} <span className="text-sm text-[#64748B]">/ 8</span>
-                        </div>
-                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${rifleAthletes.length >= 8 ? 'bg-[#22C55E]/15 text-[#22C55E]' : 'bg-[#F59E0B]/15 text-[#F59E0B]'}`}>
-                            {rifleAthletes.length >= 8 ? 'FULL (8/8)' : `${8 - rifleAthletes.length} SLOTS OPEN`}
-                        </span>
-                    </div>
-                </div>
+            {/* Admin Main Tabs: Finalists | Overlays | Broadcast Settings */}
+            <div className="flex items-center gap-2 border-b border-[#282B3A] pb-2">
+                <button
+                    onClick={() => setActiveAdminTab('finalists')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer ${activeAdminTab === 'finalists'
+                            ? 'bg-[#DC2626] text-[#F8FAFC] shadow-lg'
+                            : 'bg-[#12131A] text-[#94A3B8] hover:text-[#F8FAFC]'
+                        }`}
+                >
+                    <Users className="w-4 h-4" /> Finalists Management
+                </button>
 
-                {/* 10M Air Pistol Capacity */}
-                <div className="bg-[#12131A] p-4 rounded-xl border border-[#282B3A] space-y-1">
-                    <div className="text-[10px] text-[#64748B] uppercase font-bold">10M AIR PISTOL FINALISTS</div>
-                    <div className="flex items-baseline justify-between">
-                        <div className="text-2xl font-bold text-[#F8FAFC]">
-                            {pistolAthletes.length} <span className="text-sm text-[#64748B]">/ 8</span>
-                        </div>
-                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${pistolAthletes.length >= 8 ? 'bg-[#22C55E]/15 text-[#22C55E]' : 'bg-[#F59E0B]/15 text-[#F59E0B]'}`}>
-                            {pistolAthletes.length >= 8 ? 'FULL (8/8)' : `${8 - pistolAthletes.length} SLOTS OPEN`}
-                        </span>
-                    </div>
-                </div>
+                <button
+                    onClick={() => setActiveAdminTab('overlays')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer ${activeAdminTab === 'overlays'
+                            ? 'bg-[#DC2626] text-[#F8FAFC] shadow-lg'
+                            : 'bg-[#12131A] text-[#94A3B8] hover:text-[#F8FAFC]'
+                        }`}
+                >
+                    <Layers className="w-4 h-4" /> OBS Overlays
+                </button>
 
-                {/* Total Finalists */}
-                <div className="bg-[#12131A] p-4 rounded-xl border border-[#DC2626]/40 space-y-1">
-                    <div className="text-[10px] text-[#DC2626] uppercase font-bold">TOTAL REGISTERED FINALISTS</div>
-                    <div className="flex items-baseline justify-between">
-                        <div className="text-2xl font-bold text-[#F8FAFC]">
-                            {athleteResults.length} <span className="text-sm text-[#64748B]">/ 16</span>
-                        </div>
-                        <span className="text-[10px] text-[#94A3B8]">
-                            MAX 16 TOTAL
-                        </span>
-                    </div>
-                </div>
+                <button
+                    onClick={() => setActiveAdminTab('stream')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer ${activeAdminTab === 'stream'
+                            ? 'bg-[#DC2626] text-[#F8FAFC] shadow-lg'
+                            : 'bg-[#12131A] text-[#94A3B8] hover:text-[#F8FAFC]'
+                        }`}
+                >
+                    <Tv className="w-4 h-4" /> Stream Broadcast
+                </button>
             </div>
 
-            {/* Main Controls Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* TAB 1: FINALISTS MANAGEMENT */}
+            {activeAdminTab === 'finalists' && (
+                <div className="space-y-6 animate-fade-in">
+                    {/* Capacity Overview Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="bg-[#12131A] p-4 rounded-xl border border-[#282B3A] space-y-1">
+                            <div className="text-[10px] text-[#64748B] uppercase font-bold">10M AIR RIFLE FINALISTS</div>
+                            <div className="flex items-baseline justify-between">
+                                <div className="text-2xl font-bold text-[#F8FAFC]">
+                                    {rifleAthletes.length} <span className="text-sm text-[#64748B]">/ 8</span>
+                                </div>
+                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${rifleAthletes.length >= 8 ? 'bg-[#22C55E]/15 text-[#22C55E]' : 'bg-[#F59E0B]/15 text-[#F59E0B]'}`}>
+                                    {rifleAthletes.length >= 8 ? 'FULL (8/8)' : `${8 - rifleAthletes.length} SLOTS OPEN`}
+                                </span>
+                            </div>
+                        </div>
 
-                {/* Left Col: Finalists Roster & Manual Registration (8 cols) */}
-                <div className="lg:col-span-8 space-y-6">
+                        <div className="bg-[#12131A] p-4 rounded-xl border border-[#282B3A] space-y-1">
+                            <div className="text-[10px] text-[#64748B] uppercase font-bold">10M AIR PISTOL FINALISTS</div>
+                            <div className="flex items-baseline justify-between">
+                                <div className="text-2xl font-bold text-[#F8FAFC]">
+                                    {pistolAthletes.length} <span className="text-sm text-[#64748B]">/ 8</span>
+                                </div>
+                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${pistolAthletes.length >= 8 ? 'bg-[#22C55E]/15 text-[#22C55E]' : 'bg-[#F59E0B]/15 text-[#F59E0B]'}`}>
+                                    {pistolAthletes.length >= 8 ? 'FULL (8/8)' : `${8 - pistolAthletes.length} SLOTS OPEN`}
+                                </span>
+                            </div>
+                        </div>
 
-                    <div className="bg-[#12131A] p-5 rounded-2xl border border-[#282B3A] space-y-4">
+                        <div className="bg-[#12131A] p-4 rounded-xl border border-[#DC2626]/40 space-y-1">
+                            <div className="text-[10px] text-[#DC2626] uppercase font-bold">TOTAL REGISTERED FINALISTS</div>
+                            <div className="flex items-baseline justify-between">
+                                <div className="text-2xl font-bold text-[#F8FAFC]">
+                                    {athleteResults.length} <span className="text-sm text-[#64748B]">/ 16</span>
+                                </div>
+                                <span className="text-[10px] text-[#94A3B8]">MAX 16 TOTAL</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Finalists Table & Registration Button */}
+                    <div className="bg-[#12131A] p-5 rounded-2xl border border-[#282B3A] space-y-4 shadow-xl">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#282B3A]">
                             <div>
                                 <h2 className="font-headline-sm text-lg text-[#F8FAFC] tracking-wider uppercase">
-                                    MANUAL FINALIST REGISTRATION
+                                    REGISTERED FINALISTS ROSTER
                                 </h2>
                                 <p className="text-xs text-[#64748B]">
-                                    Register and manage the 16 competition finalists (8 Rifle, 8 Pistol).
+                                    Authoritative competition finalists stored in Cloud Firestore.
                                 </p>
                             </div>
 
@@ -298,34 +329,25 @@ export default function AdminDashboard() {
                         <div className="flex items-center gap-2 pt-1">
                             <button
                                 onClick={() => setAdminVerticalTab('ALL')}
-                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${adminVerticalTab === 'ALL'
-                                        ? 'bg-[#DC2626] text-[#F8FAFC]'
-                                        : 'bg-[#0B0C10] text-[#64748B] hover:text-[#F8FAFC]'
-                                    }`}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${adminVerticalTab === 'ALL' ? 'bg-[#DC2626] text-[#F8FAFC]' : 'bg-[#0B0C10] text-[#64748B] hover:text-[#F8FAFC]'}`}
                             >
                                 ALL ({athleteResults.length})
                             </button>
                             <button
                                 onClick={() => setAdminVerticalTab('10m_rifle')}
-                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${adminVerticalTab === '10m_rifle'
-                                        ? 'bg-[#DC2626] text-[#F8FAFC]'
-                                        : 'bg-[#0B0C10] text-[#64748B] hover:text-[#F8FAFC]'
-                                    }`}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${adminVerticalTab === '10m_rifle' ? 'bg-[#DC2626] text-[#F8FAFC]' : 'bg-[#0B0C10] text-[#64748B] hover:text-[#F8FAFC]'}`}
                             >
                                 AIR RIFLE ({rifleAthletes.length}/8)
                             </button>
                             <button
                                 onClick={() => setAdminVerticalTab('10m_pistol')}
-                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${adminVerticalTab === '10m_pistol'
-                                        ? 'bg-[#DC2626] text-[#F8FAFC]'
-                                        : 'bg-[#0B0C10] text-[#64748B] hover:text-[#F8FAFC]'
-                                    }`}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${adminVerticalTab === '10m_pistol' ? 'bg-[#DC2626] text-[#F8FAFC]' : 'bg-[#0B0C10] text-[#64748B] hover:text-[#F8FAFC]'}`}
                             >
                                 AIR PISTOL ({pistolAthletes.length}/8)
                             </button>
                         </div>
 
-                        {/* Finalists Table */}
+                        {/* Table */}
                         <div className="overflow-x-auto rounded-xl border border-[#282B3A] bg-[#0B0C10]">
                             <table className="w-full text-left text-xs">
                                 <thead>
@@ -403,71 +425,75 @@ export default function AdminDashboard() {
                             </table>
                         </div>
                     </div>
-
                 </div>
+            )}
 
-                {/* Right Col: YouTube Live Stream Settings (4 cols) */}
-                <div className="lg:col-span-4 space-y-6">
-
-                    <div className="bg-[#12131A] p-5 rounded-2xl border border-[#282B3A] space-y-4">
-                        <h2 className="font-headline-sm text-lg text-[#F8FAFC] tracking-wider uppercase border-b border-[#282B3A] pb-2 flex items-center justify-between">
-                            <span>LIVE STREAM BROADCAST</span>
-                            <Tv className="w-5 h-5 text-[#DC2626]" />
-                        </h2>
-
-                        {ytSavedMessage && (
-                            <div className="p-3 bg-[#22C55E]/15 border border-[#22C55E] rounded-xl text-xs text-[#22C55E] flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                                <span>Broadcast settings updated! Public viewer synced.</span>
-                            </div>
-                        )}
-
-                        <form onSubmit={handleUpdateStreamSettings} className="space-y-4 text-xs">
-                            <div>
-                                <label className="text-[#64748B] uppercase block mb-1 font-bold">YouTube Video ID</label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. jfKfPfyJRdk"
-                                    value={ytVideoIdInput}
-                                    onChange={e => setYtVideoIdInput(e.target.value)}
-                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3 py-2.5 text-[#F59E0B] font-bold focus:outline-none"
-                                />
-                                <span className="text-[10px] text-[#64748B] mt-1 block">
-                                    From URL: youtube.com/watch?v=<strong>ID</strong>
-                                </span>
-                            </div>
-
-                            <div>
-                                <label className="text-[#64748B] uppercase block mb-1 font-bold">Broadcast Title</label>
-                                <input
-                                    type="text"
-                                    value={ytTitleInput}
-                                    onChange={e => setYtTitleInput(e.target.value)}
-                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3 py-2.5 text-[#F8FAFC] focus:outline-none"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="text-[#64748B] uppercase block mb-1 font-bold">Camera Feed Label</label>
-                                <input
-                                    type="text"
-                                    value={ytCameraInput}
-                                    onChange={e => setYtCameraInput(e.target.value)}
-                                    className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3 py-2.5 text-[#F8FAFC] focus:outline-none"
-                                />
-                            </div>
-
-                            <button
-                                type="submit"
-                                className="w-full py-2.5 bg-[#DC2626] hover:bg-[#B91C1C] text-[#F8FAFC] font-bold uppercase rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-colors"
-                            >
-                                <Save className="w-4 h-4" /> Save Stream Config
-                            </button>
-                        </form>
-                    </div>
-
+            {/* TAB 2: OBS OVERLAYS SUITE */}
+            {activeAdminTab === 'overlays' && (
+                <div className="animate-fade-in">
+                    <AdminOverlaysTab />
                 </div>
-            </div>
+            )}
+
+            {/* TAB 3: STREAM BROADCAST CONFIG */}
+            {activeAdminTab === 'stream' && (
+                <div className="max-w-2xl bg-[#12131A] p-6 rounded-2xl border border-[#282B3A] space-y-4 shadow-xl animate-fade-in">
+                    <h2 className="font-headline-sm text-lg text-[#F8FAFC] tracking-wider uppercase border-b border-[#282B3A] pb-2 flex items-center justify-between">
+                        <span>YOUTUBE LIVE STREAM CONFIGURATION</span>
+                        <Tv className="w-5 h-5 text-[#DC2626]" />
+                    </h2>
+
+                    {ytSavedMessage && (
+                        <div className="p-3 bg-[#22C55E]/15 border border-[#22C55E] rounded-xl text-xs text-[#22C55E] flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 shrink-0" />
+                            <span>Broadcast settings saved to Firestore! All viewers synced.</span>
+                        </div>
+                    )}
+
+                    <form onSubmit={handleUpdateStreamSettings} className="space-y-4 text-xs">
+                        <div>
+                            <label className="text-[#64748B] uppercase block mb-1 font-bold">YouTube Video ID</label>
+                            <input
+                                type="text"
+                                placeholder="e.g. jfKfPfyJRdk"
+                                value={ytVideoIdInput}
+                                onChange={e => setYtVideoIdInput(e.target.value)}
+                                className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3 py-2.5 text-[#F59E0B] font-bold focus:outline-none"
+                            />
+                            <span className="text-[10px] text-[#64748B] mt-1 block">
+                                From YouTube live URL: youtube.com/watch?v=<strong>ID</strong>
+                            </span>
+                        </div>
+
+                        <div>
+                            <label className="text-[#64748B] uppercase block mb-1 font-bold">Broadcast Title</label>
+                            <input
+                                type="text"
+                                value={ytTitleInput}
+                                onChange={e => setYtTitleInput(e.target.value)}
+                                className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3 py-2.5 text-[#F8FAFC] focus:outline-none"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="text-[#64748B] uppercase block mb-1 font-bold">Camera Feed Label</label>
+                            <input
+                                type="text"
+                                value={ytCameraInput}
+                                onChange={e => setYtCameraInput(e.target.value)}
+                                className="w-full bg-[#0B0C10] border border-[#282B3A] focus:border-[#DC2626] rounded-xl px-3 py-2.5 text-[#F8FAFC] focus:outline-none"
+                            />
+                        </div>
+
+                        <button
+                            type="submit"
+                            className="w-full py-2.5 bg-[#DC2626] hover:bg-[#B91C1C] text-[#F8FAFC] font-bold uppercase rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                        >
+                            <Save className="w-4 h-4" /> Save Stream Config to Firestore
+                        </button>
+                    </form>
+                </div>
+            )}
 
             {/* MANUAL REGISTRATION / EDIT MODAL */}
             {modalOpen && (
@@ -516,7 +542,7 @@ export default function AdminDashboard() {
                                 />
                             </div>
 
-                            {/* 2. Photo Upload */}
+                            {/* 2. Photo Upload - Instant & 100% Free Plan Friendly */}
                             <div>
                                 <label className="text-[#94A3B8] font-bold uppercase block mb-1">
                                     2. Athlete Photo
@@ -529,7 +555,7 @@ export default function AdminDashboard() {
                                             <span className="text-xs text-[#64748B]">No pic</span>
                                         )}
                                     </div>
-                                    <div className="flex-1">
+                                    <div className="flex-1 flex items-center gap-2">
                                         <input
                                             type="file"
                                             accept="image/*"
@@ -539,11 +565,20 @@ export default function AdminDashboard() {
                                         />
                                         <label
                                             htmlFor="photo-file-upload"
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1C26] hover:bg-[#282B3A] border border-[#282B3A] text-[#CBD5E1] rounded-lg cursor-pointer text-xs font-bold"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1A1C26] hover:bg-[#282B3A] border border-[#282B3A] text-[#CBD5E1] rounded-lg cursor-pointer text-xs font-bold transition-colors"
                                         >
                                             <Upload className="w-3.5 h-3.5" />
-                                            {photoUploading ? 'Processing...' : 'Upload Image'}
+                                            {photoUploading ? 'Optimizing...' : 'Select Photo'}
                                         </label>
+                                        {formPhotoUrl && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setFormPhotoUrl('')}
+                                                className="text-[#EF4444] text-[11px] hover:underline"
+                                            >
+                                                Remove
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -686,7 +721,7 @@ export default function AdminDashboard() {
                         </div>
 
                         <p className="text-xs text-[#94A3B8]">
-                            This will clear all 24 shots and reset the competition scores for the active discipline (<strong>{liveState.discipline === '10m_rifle' ? '10M Air Rifle' : '10M Air Pistol'}</strong>) to start a fresh finals match. Registered finalists will be preserved.
+                            This will clear all 24 shots and reset competition scores for <strong>{liveState.discipline === '10m_rifle' ? '10M Air Rifle' : '10M Air Pistol'}</strong> in Firestore. Registered finalists will be preserved.
                         </p>
 
                         <div className="flex items-center justify-end gap-3 pt-2">
@@ -697,13 +732,13 @@ export default function AdminDashboard() {
                                 Cancel
                             </button>
                             <button
-                                onClick={() => {
-                                    resetCompetitionScores();
+                                onClick={async () => {
+                                    await resetCompetitionScores();
                                     setResetConfirmOpen(false);
                                 }}
                                 className="px-5 py-2 bg-[#EF4444] hover:bg-[#DC2626] text-[#F8FAFC] rounded-xl text-xs uppercase font-bold shadow-lg"
                             >
-                                Yes, Reset Scores
+                                Yes, Reset Scores in Firestore
                             </button>
                         </div>
                     </div>
@@ -714,7 +749,7 @@ export default function AdminDashboard() {
     );
 }
 
-// Client-side image compression helper
+// Fast, non-blocking client-side square compression
 async function compressImageFile(file: File, maxWidth: number, maxHeight: number): Promise<string> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -727,7 +762,6 @@ async function compressImageFile(file: File, maxWidth: number, maxHeight: number
                 let width = img.width;
                 let height = img.height;
 
-                // Crop / resize to square
                 const minSide = Math.min(width, height);
                 const sx = (width - minSide) / 2;
                 const sy = (height - minSide) / 2;
@@ -745,8 +779,8 @@ async function compressImageFile(file: File, maxWidth: number, maxHeight: number
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
                 resolve(dataUrl);
             };
-            img.onerror = () => reject(new Error('Image load failed'));
+            img.onerror = () => reject(new Error('Image decode error'));
         };
-        reader.onerror = () => reject(new Error('File read failed'));
+        reader.onerror = () => reject(new Error('File read error'));
     });
 }

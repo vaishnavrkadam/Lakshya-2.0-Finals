@@ -8,15 +8,19 @@ import ScorerPanel from './pages/ScorerPanel';
 import AdminDashboard from './pages/AdminDashboard';
 import AthleteSearch from './pages/AthleteSearch';
 import AdminAuthScreen from './pages/AdminAuthScreen';
+import RankNameOverlay from './pages/overlays/RankNameOverlay';
+import ScorecardsOverlay from './pages/overlays/ScorecardsOverlay';
+import LeaderboardOverlay from './pages/overlays/LeaderboardOverlay';
+import type { Discipline } from './types/shooting';
 
 const VALID_VIEWS = ['live', 'scorer', 'admin', 'search'];
 
 function getViewFromUrl(): string {
   if (typeof window === 'undefined') return 'live';
   const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
-  if (VALID_VIEWS.includes(hash)) return hash;
+  if (hash.startsWith('overlay/') || VALID_VIEWS.includes(hash)) return hash;
   const path = window.location.pathname.replace(/^\//, '').trim().toLowerCase();
-  if (VALID_VIEWS.includes(path)) return path;
+  if (path.startsWith('overlay/') || VALID_VIEWS.includes(path)) return path;
   return 'live';
 }
 
@@ -44,6 +48,23 @@ function MainContent() {
       window.removeEventListener('popstate', handleUrlChange);
     };
   }, []);
+
+  // Broadcast Overlays: Render standalone with pure Chroma Key without header or footer
+  if (currentView.startsWith('overlay/')) {
+    const parts = currentView.split('/');
+    const overlayType = parts[1];
+    const discipline: Discipline = parts[2]?.includes('pistol') ? '10m_pistol' : '10m_rifle';
+
+    if (overlayType === 'rank-name') {
+      return <RankNameOverlay discipline={discipline} />;
+    }
+    if (overlayType === 'score-card') {
+      return <ScorecardsOverlay discipline={discipline} />;
+    }
+    if (overlayType === 'leaderboard') {
+      return <LeaderboardOverlay discipline={discipline} />;
+    }
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-[#0B0C10] text-[#F8FAFC]">
