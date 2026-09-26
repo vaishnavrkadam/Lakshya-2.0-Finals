@@ -9,6 +9,7 @@ import {
 } from 'firebase/auth';
 import {
     getFirestore,
+    initializeFirestore,
     collection,
     doc,
     getDoc,
@@ -42,8 +43,17 @@ const firebaseConfig = {
 
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
+let firestoreInstance;
+try {
+    firestoreInstance = initializeFirestore(app, {
+        ignoreUndefinedProperties: true
+    });
+} catch {
+    firestoreInstance = getFirestore(app);
+}
+
+export const db = firestoreInstance;
 export const auth = getAuth(app);
-export const db = getFirestore(app);
 export const storage = getStorage(app);
 
 export {

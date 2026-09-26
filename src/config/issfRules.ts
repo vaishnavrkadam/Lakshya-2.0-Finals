@@ -60,14 +60,18 @@ export function evaluateFinalsState(athletes: AthleteResult[]): AthleteResult[] 
         const shots = ath.shots ? [...ath.shots] : [];
         const liveTotal = calculateRawScore(shots);
         const officialScore = calculateLeaderboardScore(shots);
-        const lastShot = shots.length > 0 ? shots[shots.length - 1] : undefined;
-        return {
+        const updatedAth: AthleteResult = {
             ...ath,
             shots,
             liveTotalScore: liveTotal,
             finalTotal: officialScore,
-            lastShot,
         };
+        if (shots.length > 0) {
+            updatedAth.lastShot = shots[shots.length - 1];
+        } else {
+            delete updatedAth.lastShot;
+        }
+        return updatedAth;
     });
 
     // Check elimination stages based on active shooters' shots.

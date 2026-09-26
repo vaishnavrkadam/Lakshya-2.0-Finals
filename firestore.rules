@@ -5,19 +5,19 @@ service cloud.firestore {
     // Live competition state and scoring data
     match /liveState/{document=**} {
       allow read: if true;
-      allow write: if request.resource.data.adminKey == "L@kshy@2.O_Secure_Auth_Token_2026";
+      allow write: if (request.resource != null && request.resource.data.adminKey == "L@kshy@2.O_Secure_Auth_Token_2026") || request.auth != null;
     }
 
     // Finalists and shoot records
     match /finalists/{document=**} {
       allow read: if true;
-      allow write: if request.resource.data.adminKey == "L@kshy@2.O_Secure_Auth_Token_2026";
+      allow write: if (request.resource != null && request.resource.data.adminKey == "L@kshy@2.O_Secure_Auth_Token_2026") || request.auth != null;
     }
 
     // Audit logs
     match /auditLogs/{document=**} {
       allow read: if true;
-      allow write: if request.resource.data.adminKey == "L@kshy@2.O_Secure_Auth_Token_2026";
+      allow write: if (request.resource != null && request.resource.data.adminKey == "L@kshy@2.O_Secure_Auth_Token_2026") || request.auth != null;
     }
   }
 }

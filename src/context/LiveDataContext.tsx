@@ -18,6 +18,31 @@ import { db, doc, onSnapshot, setDoc, getDoc } from '../config/firebase';
 export const FIRESTORE_ADMIN_KEY = 'L@kshy@2.O_Secure_Auth_Token_2026';
 const FIRESTORE_DOC_PATH = 'liveState/active_finals';
 
+/**
+ * Recursively cleans any object or array so that undefined values are removed,
+ * ensuring Firestore setDoc / updateDoc operations never crash.
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+    if (data === null || data === undefined) {
+        return null as unknown as T;
+    }
+    if (Array.isArray(data)) {
+        return data
+            .filter(item => item !== undefined)
+            .map(item => sanitizeForFirestore(item)) as unknown as T;
+    }
+    if (typeof data === 'object') {
+        const cleaned: Record<string, any> = {};
+        for (const [key, value] of Object.entries(data)) {
+            if (value !== undefined) {
+                cleaned[key] = sanitizeForFirestore(value);
+            }
+        }
+        return cleaned as T;
+    }
+    return data;
+}
+
 interface LiveDataContextType {
     liveState: LiveState;
     athleteResults: AthleteResult[];
@@ -63,13 +88,14 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Check and seed initial data if document doesn't exist yet
         getDoc(docRef).then(snap => {
             if (!snap.exists()) {
-                setDoc(docRef, {
+                const seedPayload = sanitizeForFirestore({
                     adminKey: FIRESTORE_ADMIN_KEY,
                     liveState: INITIAL_LIVE_STATE,
                     athleteResults: INITIAL_ATHLETE_RESULTS,
                     auditLogs: INITIAL_AUDIT_LOGS,
                     updatedAt: Date.now()
-                }).catch(err => console.warn('Firestore initial seed notice:', err));
+                });
+                setDoc(docRef, seedPayload).catch(err => console.warn('Firestore initial seed notice:', err));
             }
         }).catch(err => console.warn('Firestore seed check notice:', err));
 
@@ -115,17 +141,18 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     ): Promise<boolean> => {
         try {
             const docRef = doc(db, 'liveState', 'active_finals');
-            await setDoc(docRef, {
+            const payload = sanitizeForFirestore({
                 adminKey: FIRESTORE_ADMIN_KEY,
                 liveState: newState,
                 athleteResults: newResults,
                 auditLogs: newLogs || auditLogs,
                 updatedAt: Date.now()
-            }, { merge: true });
+            });
+            await setDoc(docRef, payload, { merge: true });
             setIsRealtimeConnected(true);
             return true;
         } catch (err: any) {
-            console.error('Firestore write error:', err);
+            console.error('Firestore write error:', err?.message || err);
             return false;
         }
     };
@@ -331,8 +358,8 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             usn: normalizedUsn,
             department: finalist.department.trim(),
             discipline: finalist.discipline,
-            photoUrl: finalist.photoUrl,
-            achievements: finalist.achievements?.trim(),
+            photoUrl: finalist.photoUrl?.trim() || '',
+            achievements: finalist.achievements?.trim() || '',
             initialScore: finalist.initialScore,
             shots: [],
             finalTotal: 0,
@@ -342,10 +369,12 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             laggingBy: '—',
         };
 
+        const prevResults = athleteResults;
         const updated = [...athleteResults, newAthlete];
         setAthleteResults(updated);
         const ok = await writeToFirestore(updated, liveState);
         if (!ok) {
+            setAthleteResults(prevResults);
             return { success: false, message: 'Failed to write registration to Firestore.' };
         }
         return { success: true };
@@ -358,6 +387,17 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const target = athleteResults.find(a => a.participantId === id);
         if (!target) return { success: false, message: 'Finalist record not found.' };
 
+        if (updated.discipline && updated.discipline !== target.discipline) {
+            const targetCount = athleteResults.filter(a => a.discipline === updated.discipline).length;
+            if (targetCount >= 8) {
+                const verticalName = updated.discipline === '10m_rifle' ? 'Air Rifle' : 'Air Pistol';
+                return {
+                    success: false,
+                    message: `Cannot switch vertical: Exactly 8 finalists already registered for ${verticalName}.`
+                };
+            }
+        }
+
         if (updated.usn) {
             const normalizedUsn = updated.usn.trim().toUpperCase();
             const duplicate = athleteResults.some(
@@ -368,6 +408,7 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
         }
 
+        const prevResults = athleteResults;
         const newResults = athleteResults.map(ath => {
             if (ath.participantId !== id) return ath;
             return {
@@ -376,8 +417,8 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 usn: updated.usn !== undefined ? updated.usn.trim().toUpperCase() : ath.usn,
                 department: updated.department !== undefined ? updated.department.trim() : ath.department,
                 discipline: updated.discipline || ath.discipline,
-                photoUrl: updated.photoUrl !== undefined ? updated.photoUrl : ath.photoUrl,
-                achievements: updated.achievements !== undefined ? updated.achievements.trim() : ath.achievements,
+                photoUrl: updated.photoUrl !== undefined ? updated.photoUrl.trim() : (ath.photoUrl || ''),
+                achievements: updated.achievements !== undefined ? updated.achievements.trim() : (ath.achievements || ''),
                 initialScore: updated.initialScore !== undefined ? updated.initialScore : ath.initialScore,
             };
         });
@@ -385,16 +426,19 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setAthleteResults(newResults);
         const ok = await writeToFirestore(newResults, liveState);
         if (!ok) {
+            setAthleteResults(prevResults);
             return { success: false, message: 'Failed to sync update to Firestore.' };
         }
         return { success: true };
     };
 
     const deleteFinalist = async (id: string): Promise<{ success: boolean; message?: string }> => {
+        const prevResults = athleteResults;
         const newResults = athleteResults.filter(a => a.participantId !== id);
         setAthleteResults(newResults);
         const ok = await writeToFirestore(newResults, liveState);
         if (!ok) {
+            setAthleteResults(prevResults);
             return { success: false, message: 'Failed to sync deletion to Firestore.' };
         }
         return { success: true };
@@ -404,7 +448,7 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const targetDiscipline = discipline || liveState.discipline;
         const newResults = athleteResults.map(ath => {
             if (ath.discipline !== targetDiscipline) return ath;
-            return {
+            const resetAth: AthleteResult = {
                 ...ath,
                 shots: [],
                 finalTotal: 0,
@@ -412,9 +456,10 @@ export const LiveDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 finalRank: 1,
                 finalStatus: 'LIVE' as const,
                 laggingBy: '—',
-                eliminatedAtShot: undefined,
-                lastShot: undefined,
             };
+            delete resetAth.eliminatedAtShot;
+            delete resetAth.lastShot;
+            return resetAth;
         });
 
         const disciplineAthletes = newResults.filter(a => a.discipline === targetDiscipline);

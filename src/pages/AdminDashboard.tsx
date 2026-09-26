@@ -98,7 +98,7 @@ export default function AdminDashboard() {
         setFormDepartment(ath.department);
         setFormVertical(ath.discipline);
         setFormAchievements(ath.achievements || '');
-        setFormInitialScore(ath.initialScore ? String(ath.initialScore) : '600.0');
+        setFormInitialScore(ath.initialScore !== undefined && ath.initialScore !== null ? String(ath.initialScore) : '600.0');
         setFormPhotoUrl(ath.photoUrl || '');
         setFormError(null);
         setModalOpen(true);
@@ -147,12 +147,12 @@ export default function AdminDashboard() {
 
         if (editingAthleteId) {
             const res = await updateFinalist(editingAthleteId, {
-                name: formName,
-                usn: formUsn,
-                department: formDepartment,
+                name: formName.trim(),
+                usn: formUsn.trim(),
+                department: formDepartment.trim(),
                 discipline: formVertical,
-                photoUrl: formPhotoUrl || undefined,
-                achievements: formAchievements || undefined,
+                photoUrl: formPhotoUrl.trim(),
+                achievements: formAchievements.trim(),
                 initialScore: initialScoreNum,
             });
 
@@ -168,12 +168,12 @@ export default function AdminDashboard() {
             }, 800);
         } else {
             const res = await registerFinalist({
-                name: formName,
-                usn: formUsn,
-                department: formDepartment,
+                name: formName.trim(),
+                usn: formUsn.trim(),
+                department: formDepartment.trim(),
                 discipline: formVertical,
-                photoUrl: formPhotoUrl || undefined,
-                achievements: formAchievements || undefined,
+                photoUrl: formPhotoUrl.trim(),
+                achievements: formAchievements.trim(),
                 initialScore: initialScoreNum,
             });
 
@@ -192,7 +192,10 @@ export default function AdminDashboard() {
 
     const handleDelete = async (id: string, name: string) => {
         if (window.confirm(`Are you sure you want to remove finalist "${name}" from competition?`)) {
-            await deleteFinalist(id);
+            const res = await deleteFinalist(id);
+            if (!res.success) {
+                alert(res.message || 'Failed to delete finalist from Firestore.');
+            }
         }
     };
 
