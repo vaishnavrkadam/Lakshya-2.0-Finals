@@ -32,13 +32,13 @@ import {
 
 // Official Lakshya 2.0 Finals Firebase Configuration
 const firebaseConfig = {
-    apiKey: "AIzaSyCPKMv1BliqBdU9KymUhqcV8qxJ2OsgJzc",
-    authDomain: "lakshya2finals.firebaseapp.com",
-    projectId: "lakshya2finals",
-    storageBucket: "lakshya2finals.firebasestorage.app",
-    messagingSenderId: "428657842383",
-    appId: "1:428657842383:web:55223e3761c426792b7fba",
-    measurementId: "G-PWYZJQYBHV"
+    apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY || "",
+    authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || "lakshya2finals.firebaseapp.com",
+    projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || "lakshya2finals",
+    storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET || "lakshya2finals.firebasestorage.app",
+    messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "428657842383",
+    appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID || "1:428657842383:web:55223e3761c426792b7fba",
+    measurementId: (import.meta as any).env?.VITE_FIREBASE_MEASUREMENT_ID || "G-PWYZJQYBHV"
 };
 
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
